@@ -144,11 +144,12 @@ function Testbed(obj) {
         test.MouseUp(getMouseCoords(event));
       }
     });
-    mt=false;
+    
     document.addEventListener('touchstart', function(event) {
+      mt=false;
       if(isTouch(event)){
-        event.preventDefault();
-        var p = getTouchCoords(event);
+        event.preventDefault();  
+        var p = getTouchCoords(event);  
         if(!mt){
             var aabb = new b2AABB;
             var d = new b2Vec2;
@@ -174,7 +175,7 @@ function Testbed(obj) {
               test.MouseDown(p);
             }
         }else{
-            alert(p[1]);
+            alert(p);
             var p0=p[0];
             var p1=p[1];
             var aabb = new b2AABB;
@@ -193,14 +194,15 @@ function Testbed(obj) {
                 md.bodyB = body;
                 md.target = p0;
                 md.maxForce = 100 * body.GetMass();
-                that.mouseJoint = world.CreateJoint(md);
+                that.mouseJoint=new Array(2);
+                that.mouseJoint[0]= world.CreateJoint(md);
 
                 md = new b2MouseJointDef;
                 md.bodyA=g_groundBody;
                 md.bodyB = body;
                 md.target = p1;
                 md.maxForce = 100 * body.GetMass();
-                that.mouseJoint = world.CreateJoint(md);
+                that.mouseJoint[1] = world.CreateJoint(md);
                 body.SetAwake(true);
             }
             if (test.MouseDown !== undefined) {
@@ -217,9 +219,17 @@ function Testbed(obj) {
     document.addEventListener('touchmove', function(event) {
         event.preventDefault();
         var p = getTouchCoords(event);
-        if (that.mouseJoint) {
-          that.mouseJoint.SetTarget(p);
+        if(!mt){
+          if (that.mouseJoint) {
+            that.mouseJoint.SetTarget(p);
+          }
+        }else{
+          if (that.mouseJoint[0]) {
+            that.mouseJoint[0].SetTarget(p[0]);
+            that.mouseJoint[1].SetTarget(p[1]);
+          }
         }
+        
         if (test.MouseMove !== undefined) {
           test.MouseMove(p);
         }
@@ -228,10 +238,19 @@ function Testbed(obj) {
     
     document.addEventListener('touchend', function(event) {
       event.preventDefault();
-      if (that.mouseJoint) {
-        world.DestroyJoint(that.mouseJoint);
-        that.mouseJoint = null;
+      if(!mt){
+        if (that.mouseJoint) {
+          world.DestroyJoint(that.mouseJoint);
+          that.mouseJoint = null;
+        }
+      }else{
+        if (that.mouseJoint[0]) {
+          world.DestroyJoint(that.mouseJoint[0]);
+          world.DestroyJoint(that.mouseJoint[1]);
+          that.mouseJoint = null;
+        }
       }
+      
       if (test.MouseUp !== undefined) {
         test.MouseUp(getTouchCoords(event));
       }
