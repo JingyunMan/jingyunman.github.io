@@ -291,6 +291,7 @@ function getMouseCoords(event) {
     return p;
 }
 function getTouchCoords(event) {
+  
     var touch0 = new THREE.Vector3();
     touch0.x = (event.changedTouches[0].clientX / windowWidth) * 2 - 1;
     touch0.y = -(event.changedTouches[0].clientY / windowHeight) * 2 + 1;
@@ -300,8 +301,23 @@ function getTouchCoords(event) {
     var dir = touch0.sub(camera.position).normalize();
     var distance = -camera.position.z / dir.z;
     var pos = camera.position.clone().add(dir.multiplyScalar(distance));
-    var p = new b2Vec2(pos.x, pos.y);
-    return p;
+    var p0 = new b2Vec2(pos.x, pos.y);
+
+    // console.info(event.changedTouches.length);
+    if(event.changedTouches.length==2){
+      alert("OK");
+      var touch1 = new THREE.Vector3();
+      touch1.x = (event.changedTouches[1].clientX / windowWidth) * 2 - 1;
+      touch1.y = -(event.changedTouches[1].clientY / windowHeight) * 2 + 1;
+      touch1.z = 0.5;
+
+      var dir1 = touch1.sub(camera.position).normalize();
+      var distance1 = -camera.position.z / dir1.z;
+      var pos1 = camera.position.clone().add(dir1.multiplyScalar(distance1));
+      var p1 = new b2Vec2(pos1.x, pos1.y);
+      return [p0,p1];
+    }
+    return p0;
 }
 
 window.addEventListener('load', initTestbed, false);
@@ -366,7 +382,7 @@ Powder.prototype.Step = function() {
 
     var shape = new b2PolygonShape;
     shape.SetAsBoxXY(0.125, 0.125);
-    body.CreateFixtureFromShape(shape, 1);
+    body.CreateFixtureFromShape(shape, 10);
     ++this.count;
   }
 };
