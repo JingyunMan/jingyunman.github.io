@@ -174,6 +174,7 @@ function Testbed(obj) {
               test.MouseDown(p);
             }
         }else{
+            alert(p[1]);
             var p0=p[0];
             var p1=p[1];
             var aabb = new b2AABB;
