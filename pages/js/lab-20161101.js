@@ -77,6 +77,14 @@ function testSwitch(testName) {
   g_groundBody = world.CreateBody(bd);
   test = new window[testName];
 }
+function isTouch(evt){
+  var type = evt.type;
+    if(type.indexOf('touch')>=0){
+      return true;
+  }else{
+    return false;
+  }
+}
 function Testbed(obj) {
     var that = this;
     document.addEventListener('keypress', function(event) {
@@ -117,7 +125,6 @@ function Testbed(obj) {
         }
 
     });
-
     document.addEventListener('mousemove', function(event) {
         var p = getMouseCoords(event);
         if (that.mouseJoint) {
@@ -127,7 +134,6 @@ function Testbed(obj) {
           test.MouseMove(p);
         }
     });
-
     document.addEventListener('mouseup', function(event) {
       if (that.mouseJoint) {
         world.DestroyJoint(that.mouseJoint);
@@ -135,6 +141,61 @@ function Testbed(obj) {
       }
       if (test.MouseUp !== undefined) {
         test.MouseUp(getMouseCoords(event));
+      }
+    });
+    document.addEventListener('touchstart', function(event) {
+      if(isTouch(event)){
+        event.preventDefault();
+        var p = getTouchCoords(event);
+        var aabb = new b2AABB;
+        var d = new b2Vec2;
+
+        d.Set(0.01, 0.01);
+        b2Vec2.Sub(aabb.lowerBound, p, d);
+        b2Vec2.Add(aabb.upperBound, p, d);
+
+        var queryCallback = new QueryCallback(p);
+        world.QueryAABB(queryCallback, aabb);
+        
+        if (queryCallback.fixture) {
+          var body = queryCallback.fixture.body;
+          var md = new b2MouseJointDef;
+          md.bodyA = g_groundBody;
+          md.bodyB = body;
+          md.target = p;
+          md.maxForce = 100 * body.GetMass();
+          that.mouseJoint = world.CreateJoint(md);
+          body.SetAwake(true);
+        }
+        if (test.MouseDown !== undefined) {
+          test.MouseDown(p);
+        }
+      }
+        
+
+    });
+
+    
+    document.addEventListener('touchmove', function(event) {
+        event.preventDefault();
+        var p = getTouchCoords(event);
+        if (that.mouseJoint) {
+          that.mouseJoint.SetTarget(p);
+        }
+        if (test.MouseMove !== undefined) {
+          test.MouseMove(p);
+        }
+    });
+
+    
+    document.addEventListener('touchend', function(event) {
+      event.preventDefault();
+      if (that.mouseJoint) {
+        world.DestroyJoint(that.mouseJoint);
+        that.mouseJoint = null;
+      }
+      if (test.MouseUp !== undefined) {
+        test.MouseUp(getTouchCoords(event));
       }
     });
 
@@ -217,17 +278,30 @@ function onWindowResize() {
 }
 
 function getMouseCoords(event) {
-  var mouse = new THREE.Vector3();
-  mouse.x = (event.clientX / windowWidth) * 2 - 1;
-  mouse.y = -(event.clientY / windowHeight) * 2 + 1;
-  mouse.z = 0.5;
+    var mouse = new THREE.Vector3();
+    mouse.x = (event.clientX / windowWidth) * 2 - 1;
+    mouse.y = -(event.clientY / windowHeight) * 2 + 1;
+    mouse.z = 0.5;
 
-  projector.unprojectVector(mouse, camera);
-  var dir = mouse.sub(camera.position).normalize();
-  var distance = -camera.position.z / dir.z;
-  var pos = camera.position.clone().add(dir.multiplyScalar(distance));
-  var p = new b2Vec2(pos.x, pos.y);
-  return p;
+    projector.unprojectVector(mouse, camera);
+    var dir = mouse.sub(camera.position).normalize();
+    var distance = -camera.position.z / dir.z;
+    var pos = camera.position.clone().add(dir.multiplyScalar(distance));
+    var p = new b2Vec2(pos.x, pos.y);
+    return p;
+}
+function getTouchCoords(event) {
+    var touch0 = new THREE.Vector3();
+    touch0.x = (event.changedTouches[0].clientX / windowWidth) * 2 - 1;
+    touch0.y = -(event.changedTouches[0].clientY / windowHeight) * 2 + 1;
+    touch0.z = 0.5;
+
+    projector.unprojectVector(touch0, camera);
+    var dir = touch0.sub(camera.position).normalize();
+    var distance = -camera.position.z / dir.z;
+    var pos = camera.position.clone().add(dir.multiplyScalar(distance));
+    var p = new b2Vec2(pos.x, pos.y);
+    return p;
 }
 
 window.addEventListener('load', initTestbed, false);
