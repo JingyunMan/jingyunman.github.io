@@ -1,13 +1,13 @@
 // shouldnt be a global :(
 var particleColors = [
-  new b2ParticleColor(0xff, 0x00, 0x00, 0xff), // red
-  new b2ParticleColor(0x00, 0xff, 0x00, 0xff), // green
-  new b2ParticleColor(0x00, 0x00, 0xff, 0xff), // blue
-  new b2ParticleColor(0xff, 0x8c, 0x00, 0xff), // orange
-  new b2ParticleColor(0x00, 0xce, 0xd1, 0xff), // turquoise
-  new b2ParticleColor(0xff, 0x00, 0xff, 0xff), // magenta
-  new b2ParticleColor(0xff, 0xd7, 0x00, 0xff), // gold
-  new b2ParticleColor(0x00, 0xff, 0xff, 0xff) // cyan
+  new b2ParticleColor(0xff, 0x00, 0x00, 0xff), // red 0
+  new b2ParticleColor(0x00, 0xff, 0x00, 0xff), // green 1
+  new b2ParticleColor(0x00, 0x00, 0xff, 0xff), // blue 2
+  new b2ParticleColor(0xff, 0x8c, 0x00, 0xff), // orange 3
+  new b2ParticleColor(0x00, 0xce, 0xd1, 0xff), // turquoise 4
+  new b2ParticleColor(0xff, 0x00, 0xff, 0xff), // magenta 5
+  new b2ParticleColor(0xff, 0xd7, 0x00, 0xff), // gold 6
+  new b2ParticleColor(0x00, 0xff, 0xff, 0xff) // cyan 7
 ];
 var container;
 var world = null;
@@ -381,7 +381,7 @@ function multiTouch(){
 
 }
 //cup
-function Cup(x, y, h, w){
+function Cup(x, y, w, h){
   var bd= new b2BodyDef;
   bd.type = b2_dynamicBody;
   bd.position.Set(x, y);
@@ -399,6 +399,53 @@ function Cup(x, y, h, w){
   shape = new b2PolygonShape;
   shape.SetAsBoxXYCenterAngle(ww, thick, new b2Vec2( 0.0, -hh), 0.0);
   body.CreateFixtureFromShape(shape, rho0);  
+}
+//Dropper
+function Dropper(x, y, w, h, ground){
+  var bd= new b2BodyDef;
+  bd.type = b2_dynamicBody;
+  bd.position.Set(x, y);
+  var body = world.CreateBody(bd);
+
+  var thick=0.1;
+  var shape=new b2PolygonShape;
+  shape.SetAsBoxXYCenterAngle(thick, h, new b2Vec2( -w, 0.0), 0.0);
+  body.CreateFixtureFromShape(shape, rho0);
+
+  shape=new b2PolygonShape;
+  shape.SetAsBoxXYCenterAngle(thick, h, new b2Vec2( w, 0.0), 0.0);
+  body.CreateFixtureFromShape(shape, rho0);
+
+  shape=new b2PolygonShape;
+  var an=Math.PI*0.01;
+  var h0=h*0.6, xx=-w-h0*Math.cos(an+Math.PI/2), yy=-h-h0+h0*Math.sin(an);
+  shape.SetAsBoxXYCenterAngle(thick, h0, new b2Vec2( xx, yy), an);
+  body.CreateFixtureFromShape(shape, rho0);
+
+  shape=new b2PolygonShape;
+  shape.SetAsBoxXYCenterAngle(thick, h0, new b2Vec2( -xx, yy), -an);
+  body.CreateFixtureFromShape(shape, rho0);
+
+  shape=new b2PolygonShape;
+  var h1=h*0.5;
+  shape.SetAsBoxXYCenterAngle(w+thick*2, h1, new b2Vec2( 0, h+h1), 0);
+  body.CreateFixtureFromShape(shape, rho0);
+
+  //mario
+  var antiG = gravity;
+  var I = body.GetInertia();
+  var m = body.GetMass();
+
+  var radius = Math.sqrt(2 * I / m);
+
+  // setup friction joint
+  var jd = new b2FrictionJointDef;
+  jd.bodyA = ground;
+  jd.bodyB = body;
+  jd.collideConnected = true;
+  jd.maxForce = m * antiG;
+  jd.maxTorque = m * radius * antiG;
+  world.CreateJoint(jd);
 }
 //bottle
 function Bottle(x, y, w, h){
@@ -494,7 +541,7 @@ function Powder(x,y, r, maxCount){
     ++this.count;
   }
 }
-function solvent(x,y,w,h ){
+function solvent(x,y,w,h,num){
     // Create particle system.
     var psd = new b2ParticleSystemDef();
     psd.radius = 0.06;
@@ -507,6 +554,8 @@ function solvent(x,y,w,h ){
     var pd = new b2ParticleGroupDef();
     pd.flags = b2_tensileParticle | b2_viscousParticle;
     pd.shape = shape;
+    // pd.color.Set(255, 0, 0, 255);
+    pd.color=particleColors[num];
     var group = particleSystem.CreateParticleGroup(pd);
 }
 function Lab(){
@@ -532,21 +581,23 @@ function Lab(){
     shape.Set(new b2Vec2(b2ww, 0.0), new b2Vec2(b2ww, b2h));
     ground.CreateFixtureFromShape(shape, 0.0);
 
-    // //solid
-    // Bottle(-20.0, 10.0, 2.5, 4.0);
-    // Powder(-20, 10, 0.3, 30);
-    // //Powder
-    // Bottle(-12.0, 10.0, 2.5, 4.0);
-    // Powder(-12, 10, 0.1, 300);
-    // //Liquid
-    // Bottle(-4.0, 10.0, 2.5, 4.0);
-    // solvent(-4.0, 10.0, 2, 3.0);
+    //solid
+    Bottle(-20.0, 10.0, 2.5, 4.0);
+    Powder(-20, 10, 0.3, 30);
+    //Powder
+    Bottle(-12.0, 10.0, 2.5, 4.0);
+    Powder(-12, 10, 0.1, 300);
+    //Liquid
+    Bottle(-4.0, 10.0, 2.5, 4.0);
+    solvent(-4.0, 10.0, 2, 3.0, 4.0);
+    //Dropper
+    Dropper(2.0, 10.0, 0.3, 2, ground);
 
     Tube(10.0, 15.0, 0.8, 8.0, 0.2, ground);
     //liquid
-    solvent( 10, 15, 0.3, 8);
+    solvent( 10, 15, 0.4, 5, 5.0);
 
-    // Cup(18.0, 10.0, 4.0, 3.0);
+    Cup(18.0, 10.0, 3.0, 5.0);
     
 }
 // Powder.prototype.Step = function() {
