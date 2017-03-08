@@ -24,9 +24,38 @@ QUANTUM_SIZE:4,__dummy__:0};Module["Runtime"]=Runtime;var __THREW__=0;var ABORT=
 function getCFunc(ident){var func=Module["_"+ident];if(!func)try{func=eval("_"+ident)}catch(e){}assert(func,"Cannot call unknown function "+ident+" (perhaps LLVM optimizations or closure removed it?)");return func}var cwrap,ccall;
 (function(){var stack=0;var JSfuncs={"stackSave":function(){stack=Runtime.stackSave()},"stackRestore":function(){Runtime.stackRestore(stack)},"arrayToC":function(arr){var ret=Runtime.stackAlloc(arr.length);writeArrayToMemory(arr,ret);return ret},"stringToC":function(str){var ret=0;if(str!==null&&str!==undefined&&str!==0){ret=Runtime.stackAlloc(str.length+1);writeStringToMemory(str,ret)}return ret}};var toC={"string":JSfuncs["stringToC"],"array":JSfuncs["arrayToC"]};ccall=function ccallFunc(ident,
 returnType,argTypes,args){var func=getCFunc(ident);var cArgs=[];if(args)for(var i=0;i<args.length;i++){var converter=toC[argTypes[i]];if(converter){if(stack===0)stack=Runtime.stackSave();cArgs[i]=converter(args[i])}else cArgs[i]=args[i]}var ret=func.apply(null,cArgs);if(returnType==="string")ret=Pointer_stringify(ret);if(stack!==0)JSfuncs["stackRestore"]();return ret};var sourceRegex=/^function\s*\(([^)]*)\)\s*{\s*([^*]*?)[\s;]*(?:return\s*(.*?)[;\s]*)?}$/;function parseJSFunc(jsfunc){var parsed=
-jsfunc.toString().match(sourceRegex).slice(1);return{arguments:parsed[0],body:parsed[1],returnValue:parsed[2]}}var JSsource={};for(var fun in JSfuncs)if(JSfuncs.hasOwnProperty(fun))JSsource[fun]=parseJSFunc(JSfuncs[fun]);cwrap=function cwrap(ident,returnType,argTypes){var cfunc=getCFunc(ident);var numericArgs=argTypes.every(function(type){return type==="number"});var numericRet=returnType!=="string";if(numericRet&&numericArgs)return cfunc;var argNames=argTypes.map(function(x,i){return"$"+i});var funcstr=
-"(function("+argNames.join(",")+") {";var nargs=argTypes.length;if(!numericArgs){funcstr+=JSsource["stackSave"].body+";";for(var i=0;i<nargs;i++){var arg=argNames[i],type=argTypes[i];if(type==="number")continue;var convertCode=JSsource[type+"ToC"];funcstr+="var "+convertCode.arguments+" = "+arg+";";funcstr+=convertCode.body+";";funcstr+=arg+"="+convertCode.returnValue+";"}}var cfuncname=parseJSFunc(function(){return cfunc}).returnValue;funcstr+="var ret = "+cfuncname+"("+argNames.join(",")+");";if(!numericRet){var strgfy=
-parseJSFunc(function(){return Pointer_stringify}).returnValue;funcstr+="ret = "+strgfy+"(ret);"}if(!numericArgs)funcstr+=JSsource["stackRestore"].body+";";funcstr+="return ret})";return eval(funcstr)}})();Module["cwrap"]=cwrap;Module["ccall"]=ccall;
+jsfunc.toString().match(sourceRegex).slice(1);return{arguments:parsed[0],body:parsed[1],returnValue:parsed[2]}}var JSsource={};for(var fun in JSfuncs)if(JSfuncs.hasOwnProperty(fun))JSsource[fun]=parseJSFunc(JSfuncs[fun]);
+
+cwrap=function cwrap(ident,returnType,argTypes){
+	var cfunc=getCFunc(ident);
+	var numericArgs=argTypes.every(function(type){return type==="number"});
+	var numericRet=returnType!=="string";
+	if(numericRet&&numericArgs)return cfunc;
+	var argNames=argTypes.map(function(x,i){return"$"+i});
+	var funcstr="(function("+argNames.join(",")+") {";
+	var nargs=argTypes.length;
+	if(!numericArgs){
+		funcstr+=JSsource["stackSave"].body+";";
+		for(var i=0;i<nargs;i++){
+			var arg=argNames[i],type=argTypes[i];
+			if(type==="number")continue;
+			var convertCode=JSsource[type+"ToC"];
+			funcstr+="var "+convertCode.arguments+" = "+arg+";";
+			funcstr+=convertCode.body+";";
+			funcstr+=arg+"="+convertCode.returnValue+";"
+		}
+	}
+	var cfuncname=parseJSFunc(function(){return cfunc}).returnValue;
+	funcstr+="var ret = "+cfuncname+"("+argNames.join(",")+");";
+	if(!numericRet){
+		var strgfy=parseJSFunc(function(){
+			return Pointer_stringify
+		}).returnValue;
+		funcstr+="ret = "+strgfy+"(ret);"
+	}
+	if(!numericArgs)funcstr+=JSsource["stackRestore"].body+";";
+	funcstr+="return ret})";
+	return eval(funcstr)}})();Module["cwrap"]=cwrap;Module["ccall"]=ccall;
 function setValue(ptr,value,type,noSafe){type=type||"i8";if(type.charAt(type.length-1)==="*")type="i32";switch(type){case "i1":HEAP8[ptr>>0]=value;break;case "i8":HEAP8[ptr>>0]=value;break;case "i16":HEAP16[ptr>>1]=value;break;case "i32":HEAP32[ptr>>2]=value;break;case "i64":tempI64=[value>>>0,(tempDouble=value,+Math_abs(tempDouble)>=+1?tempDouble>+0?(Math_min(+Math_floor(tempDouble/+4294967296),+4294967295)|0)>>>0:~~+Math_ceil((tempDouble-+(~~tempDouble>>>0))/+4294967296)>>>0:0)],HEAP32[ptr>>2]=
 tempI64[0],HEAP32[ptr+4>>2]=tempI64[1];break;case "float":HEAPF32[ptr>>2]=value;break;case "double":HEAPF64[ptr>>3]=value;break;default:abort("invalid type for setValue: "+type)}}Module["setValue"]=setValue;
 function getValue(ptr,type,noSafe){type=type||"i8";if(type.charAt(type.length-1)==="*")type="i32";switch(type){case "i1":return HEAP8[ptr>>0];case "i8":return HEAP8[ptr>>0];case "i16":return HEAP16[ptr>>1];case "i32":return HEAP32[ptr>>2];case "i64":return HEAP32[ptr>>2];case "float":return HEAPF32[ptr>>2];case "double":return HEAPF64[ptr>>3];default:abort("invalid type for setValue: "+type)}return null}Module["getValue"]=getValue;var ALLOC_NORMAL=0;var ALLOC_STACK=1;var ALLOC_STATIC=2;
@@ -114,7 +143,11 @@ allocate([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,232,37,0,0,92,0,0,0,93,0,0,0,6,0,0,0,0,0,0,0,115,116,100,58,58,98,97,100,95,97,108,108,111,99,0,0,83,116,57,98,97,100,95,97,108,108,111,99,0,0,0,0,88,35,0,0,216,37,0,0,0,0,0,0,0,0,0,0],"i8",ALLOC_NONE,Runtime.GLOBAL_BASE);var tempDoublePtr=Runtime.alignMemory(allocate(12,"i8",ALLOC_STATIC),8);assert(tempDoublePtr%8==0);
 function copyTempFloat(ptr){HEAP8[tempDoublePtr]=HEAP8[ptr];HEAP8[tempDoublePtr+1]=HEAP8[ptr+1];HEAP8[tempDoublePtr+2]=HEAP8[ptr+2];HEAP8[tempDoublePtr+3]=HEAP8[ptr+3]}function copyTempDouble(ptr){HEAP8[tempDoublePtr]=HEAP8[ptr];HEAP8[tempDoublePtr+1]=HEAP8[ptr+1];HEAP8[tempDoublePtr+2]=HEAP8[ptr+2];HEAP8[tempDoublePtr+3]=HEAP8[ptr+3];HEAP8[tempDoublePtr+4]=HEAP8[ptr+4];HEAP8[tempDoublePtr+5]=HEAP8[ptr+5];HEAP8[tempDoublePtr+6]=HEAP8[ptr+6];HEAP8[tempDoublePtr+7]=HEAP8[ptr+7]}
-function _cosf(){return Math_cos.apply(null,arguments)}function ___cxa_pure_virtual(){ABORT=true;throw"Pure virtual function called!";}function _b2WorldEndContactBody(contactPtr){b2World.EndContactBody(contactPtr)}function _floorf(){return Math_floor.apply(null,arguments)}function __ZSt18uncaught_exceptionv(){return!!__ZSt18uncaught_exceptionv.uncaught_exception}
+function _cosf(){return Math_cos.apply(null,arguments)}function ___cxa_pure_virtual(){ABORT=true;throw"Pure virtual function called!";}
+function _b2WorldEndContactBody(contactPtr){
+	b2World.EndContactBody(contactPtr)
+}
+function _floorf(){return Math_floor.apply(null,arguments)}function __ZSt18uncaught_exceptionv(){return!!__ZSt18uncaught_exceptionv.uncaught_exception}
 function ___cxa_is_number_type(type){var isNumber=false;try{if(type==__ZTIi)isNumber=true}catch(e){}try{if(type==__ZTIj)isNumber=true}catch(e){}try{if(type==__ZTIl)isNumber=true}catch(e){}try{if(type==__ZTIm)isNumber=true}catch(e){}try{if(type==__ZTIx)isNumber=true}catch(e){}try{if(type==__ZTIy)isNumber=true}catch(e){}try{if(type==__ZTIf)isNumber=true}catch(e){}try{if(type==__ZTId)isNumber=true}catch(e){}try{if(type==__ZTIe)isNumber=true}catch(e){}try{if(type==__ZTIc)isNumber=true}catch(e){}try{if(type==
 __ZTIa)isNumber=true}catch(e){}try{if(type==__ZTIh)isNumber=true}catch(e){}try{if(type==__ZTIs)isNumber=true}catch(e){}try{if(type==__ZTIt)isNumber=true}catch(e){}return isNumber}
 function ___cxa_does_inherit(definiteType,possibilityType,possibility){if(possibility==0)return false;if(possibilityType==0||possibilityType==definiteType)return true;var possibility_type_info;if(___cxa_is_number_type(possibilityType))possibility_type_info=possibilityType;else{var possibility_type_infoAddr=HEAP32[possibilityType>>2]-8;possibility_type_info=HEAP32[possibility_type_infoAddr>>2]}switch(possibility_type_info){case 0:var definite_type_infoAddr=HEAP32[definiteType>>2]-8;var definite_type_info=
@@ -124,8 +157,13 @@ function ___cxa_find_matching_catch(thrown,throwntype){if(thrown==-1)thrown=___c
 throwntype,thrown))return(asm["setTempRet0"](typeArray[i]),thrown)|0;return(asm["setTempRet0"](throwntype),thrown)|0}
 function ___cxa_throw(ptr,type,destructor){if(!___cxa_throw.initialized){try{HEAP32[__ZTVN10__cxxabiv119__pointer_type_infoE>>2]=0}catch(e){}try{HEAP32[__ZTVN10__cxxabiv117__class_type_infoE>>2]=1}catch(e){}try{HEAP32[__ZTVN10__cxxabiv120__si_class_type_infoE>>2]=2}catch(e){}___cxa_throw.initialized=true}var header=ptr-___cxa_exception_header_size;HEAP32[header>>2]=type;HEAP32[header+4>>2]=destructor;___cxa_last_thrown_exception=ptr;if(!("uncaught_exception"in __ZSt18uncaught_exceptionv))__ZSt18uncaught_exceptionv.uncaught_exception=
 1;else __ZSt18uncaught_exceptionv.uncaught_exception++;throw ptr+" - Exception catching is disabled, this exception cannot be caught. Compile with -s DISABLE_EXCEPTION_CATCHING=0 or DISABLE_EXCEPTION_CATCHING=2 to catch.";}Module["_memset"]=_memset;function _b2WorldRayCastCallback(fixturePtr,pointX,pointY,normalX,normalY,fraction){return b2World.RayCast(fixturePtr,pointX,pointY,normalX,normalY,fraction)}var _FtoIHigh=true;function __exit(status){Module["exit"](status)}
-function _exit(status){__exit(status)}function __ZSt9terminatev(){_exit(-1234)}function _abort(){Module["abort"]()}function _b2WorldBeginContactBody(contactPtr){b2World.BeginContactBody(contactPtr)}var ___cxa_caught_exceptions=[];function ___cxa_begin_catch(ptr){__ZSt18uncaught_exceptionv.uncaught_exception--;___cxa_caught_exceptions.push(___cxa_last_thrown_exception);return ptr}function _sinf(){return Math_sin.apply(null,arguments)}
-function _b2WorldPostSolve(contactPtr,impulsePtr){b2World.PostSolve(contactPtr,impulsePtr)}Module["_strlen"]=_strlen;function _sqrtf(){return Math_sqrt.apply(null,arguments)}function _b2WorldQueryAABB(fixturePtr){return b2World.QueryAABB(fixturePtr)}Module["_i64Add"]=_i64Add;
+function _exit(status){__exit(status)}function __ZSt9terminatev(){_exit(-1234)}function _abort(){Module["abort"]()}
+function _b2WorldBeginContactBody(contactPtr){
+	b2World.BeginContactBody(contactPtr)
+}var ___cxa_caught_exceptions=[];function ___cxa_begin_catch(ptr){__ZSt18uncaught_exceptionv.uncaught_exception--;___cxa_caught_exceptions.push(___cxa_last_thrown_exception);return ptr}function _sinf(){return Math_sin.apply(null,arguments)}
+function _b2WorldPostSolve(contactPtr,impulsePtr){
+	b2World.PostSolve(contactPtr,impulsePtr)
+}Module["_strlen"]=_strlen;function _sqrtf(){return Math_sqrt.apply(null,arguments)}function _b2WorldQueryAABB(fixturePtr){return b2World.QueryAABB(fixturePtr)}Module["_i64Add"]=_i64Add;
 function _sbrk(bytes){var self=_sbrk;if(!self.called){DYNAMICTOP=alignMemoryPage(DYNAMICTOP);self.called=true;assert(Runtime.dynamicAlloc);self.alloc=Runtime.dynamicAlloc;Runtime.dynamicAlloc=function(){abort("cannot dynamically allocate, sbrk now has control")}}var ret=DYNAMICTOP;if(bytes!=0)self.alloc(bytes);return ret}function _emscripten_memcpy_big(dest,src,num){HEAPU8.set(HEAPU8.subarray(src,src+num),dest);return dest}Module["_memcpy"]=_memcpy;Module["_memmove"]=_memmove;var ___errno_state=0;
 function ___setErrNo(value){HEAP32[___errno_state>>2]=value;return value}function ___errno_location(){return ___errno_state}var _FtoILow=true;function __ZNSt9exceptionD2Ev(){}function _b2WorldPreSolve(contactPtr,oldManifoldPtr){b2World.PreSolve(contactPtr,oldManifoldPtr)}
 var ERRNO_CODES={EPERM:1,ENOENT:2,ESRCH:3,EINTR:4,EIO:5,ENXIO:6,E2BIG:7,ENOEXEC:8,EBADF:9,ECHILD:10,EAGAIN:11,EWOULDBLOCK:11,ENOMEM:12,EACCES:13,EFAULT:14,ENOTBLK:15,EBUSY:16,EEXIST:17,EXDEV:18,ENODEV:19,ENOTDIR:20,EISDIR:21,EINVAL:22,ENFILE:23,EMFILE:24,ENOTTY:25,ETXTBSY:26,EFBIG:27,ENOSPC:28,ESPIPE:29,EROFS:30,EMLINK:31,EPIPE:32,EDOM:33,ERANGE:34,ENOMSG:42,EIDRM:43,ECHRNG:44,EL2NSYNC:45,EL3HLT:46,EL3RST:47,ELNRNG:48,EUNATCH:49,ENOCSI:50,EL2HLT:51,EDEADLK:35,ENOLCK:37,EBADE:52,EBADR:53,EXFULL:54,
@@ -1318,7 +1356,9 @@ var _b2Body_SetAwake=Module["_b2Body_SetAwake"]=asm["_b2Body_SetAwake"];var _b2B
 var _b2MotorJoint_SetLinearOffset=Module["_b2MotorJoint_SetLinearOffset"]=asm["_b2MotorJoint_SetLinearOffset"];var _free=Module["_free"]=asm["_free"];var _b2ParticleSystem_CreateParticle=Module["_b2ParticleSystem_CreateParticle"]=asm["_b2ParticleSystem_CreateParticle"];var _b2Body_SetLinearVelocity=Module["_b2Body_SetLinearVelocity"]=asm["_b2Body_SetLinearVelocity"];var _b2CircleShape_CreateParticleGroup=Module["_b2CircleShape_CreateParticleGroup"]=asm["_b2CircleShape_CreateParticleGroup"];
 var _b2WeldJointDef_Create=Module["_b2WeldJointDef_Create"]=asm["_b2WeldJointDef_Create"];var _b2Body_GetAngularVelocity=Module["_b2Body_GetAngularVelocity"]=asm["_b2Body_GetAngularVelocity"];var _b2Body_ApplyForceToCenter=Module["_b2Body_ApplyForceToCenter"]=asm["_b2Body_ApplyForceToCenter"];var _b2DistanceJointDef_InitializeAndCreate=Module["_b2DistanceJointDef_InitializeAndCreate"]=asm["_b2DistanceJointDef_InitializeAndCreate"];var _b2Body_ApplyForce=Module["_b2Body_ApplyForce"]=asm["_b2Body_ApplyForce"];
 var _b2RevoluteJoint_SetMotorSpeed=Module["_b2RevoluteJoint_SetMotorSpeed"]=asm["_b2RevoluteJoint_SetMotorSpeed"];var _b2Body_GetPosition=Module["_b2Body_GetPosition"]=asm["_b2Body_GetPosition"];var _b2World_CreateBody=Module["_b2World_CreateBody"]=asm["_b2World_CreateBody"];var _b2Body_GetLinearVelocity=Module["_b2Body_GetLinearVelocity"]=asm["_b2Body_GetLinearVelocity"];var _b2Body_SetMassData=Module["_b2Body_SetMassData"]=asm["_b2Body_SetMassData"];
+
 var _b2MouseJointDef_Create=Module["_b2MouseJointDef_Create"]=asm["_b2MouseJointDef_Create"];var _b2ParticleSystem_GetColorBuffer=Module["_b2ParticleSystem_GetColorBuffer"]=asm["_b2ParticleSystem_GetColorBuffer"];var _b2DistanceJointDef_Create=Module["_b2DistanceJointDef_Create"]=asm["_b2DistanceJointDef_Create"];var _b2ParticleSystem_GetPositionBuffer=Module["_b2ParticleSystem_GetPositionBuffer"]=asm["_b2ParticleSystem_GetPositionBuffer"];
+
 var _b2CircleShape_DestroyParticlesInShape=Module["_b2CircleShape_DestroyParticlesInShape"]=asm["_b2CircleShape_DestroyParticlesInShape"];var _b2World_QueryAABB=Module["_b2World_QueryAABB"]=asm["_b2World_QueryAABB"];var _b2PolygonShape_DestroyParticlesInShape_4=Module["_b2PolygonShape_DestroyParticlesInShape_4"]=asm["_b2PolygonShape_DestroyParticlesInShape_4"];var _b2RevoluteJointDef_InitializeAndCreate=Module["_b2RevoluteJointDef_InitializeAndCreate"]=asm["_b2RevoluteJointDef_InitializeAndCreate"];
 var _b2GearJointDef_Create=Module["_b2GearJointDef_Create"]=asm["_b2GearJointDef_Create"];var _b2PrismaticJoint_IsLimitEnabled=Module["_b2PrismaticJoint_IsLimitEnabled"]=asm["_b2PrismaticJoint_IsLimitEnabled"];var _b2Contact_GetWorldManifold=Module["_b2Contact_GetWorldManifold"]=asm["_b2Contact_GetWorldManifold"];var _b2WheelJoint_SetSpringFrequencyHz=Module["_b2WheelJoint_SetSpringFrequencyHz"]=asm["_b2WheelJoint_SetSpringFrequencyHz"];var _b2Body_ApplyTorque=Module["_b2Body_ApplyTorque"]=asm["_b2Body_ApplyTorque"];
 var _b2ParticleGroup_ApplyLinearImpulse=Module["_b2ParticleGroup_ApplyLinearImpulse"]=asm["_b2ParticleGroup_ApplyLinearImpulse"];var _b2PrismaticJointDef_InitializeAndCreate=Module["_b2PrismaticJointDef_InitializeAndCreate"]=asm["_b2PrismaticJointDef_InitializeAndCreate"];var _memset=Module["_memset"]=asm["_memset"];var _b2MotorJointDef_Create=Module["_b2MotorJointDef_Create"]=asm["_b2MotorJointDef_Create"];var _b2World_DestroyBody=Module["_b2World_DestroyBody"]=asm["_b2World_DestroyBody"];
@@ -1389,12 +1429,103 @@ Module["callMain"]=Module.callMain=function callMain(args){assert(runDependencie
 "i8",ALLOC_NORMAL));pad()}argv.push(0);argv=allocate(argv,"i32",ALLOC_NORMAL);initialStackTop=STACKTOP;try{var ret=Module["_main"](argc,argv,0);if(!Module["noExitRuntime"])exit(ret)}catch(e){if(e instanceof ExitStatus)return;else if(e=="SimulateInfiniteLoop"){Module["noExitRuntime"]=true;return}else{if(e&&typeof e==="object"&&e.stack)Module.printErr("exception thrown: "+[e,e.stack]);throw e;}}finally{calledMain=true}};
 function run(args){args=args||Module["arguments"];if(preloadStartTime===null)preloadStartTime=Date.now();if(runDependencies>0){Module.printErr("run() called, but dependencies remain, so not running");return}preRun();if(runDependencies>0)return;if(Module["calledRun"])return;function doRun(){if(Module["calledRun"])return;Module["calledRun"]=true;ensureInitRuntime();preMain();if(ENVIRONMENT_IS_WEB&&preloadStartTime!==null)Module.printErr("pre-main prep time: "+(Date.now()-preloadStartTime)+" ms");if(Module["_main"]&&
 shouldRunNow)Module["callMain"](args);postRun()}if(Module["setStatus"]){Module["setStatus"]("Running...");setTimeout(function(){setTimeout(function(){Module["setStatus"]("")},1);if(!ABORT)doRun()},1)}else doRun()}Module["run"]=Module.run=run;function exit(status){ABORT=true;EXITSTATUS=status;STACKTOP=initialStackTop;exitRuntime();throw new ExitStatus(status);}Module["exit"]=Module.exit=exit;
-function abort(text){if(text){Module.print(text);Module.printErr(text)}ABORT=true;EXITSTATUS=1;var extra="\nIf this abort() is unexpected, build with -s ASSERTIONS=1 which can give more information.";throw"abort() at "+stackTrace()+extra;}Module["abort"]=Module.abort=abort;if(Module["preInit"]){if(typeof Module["preInit"]=="function")Module["preInit"]=[Module["preInit"]];while(Module["preInit"].length>0)Module["preInit"].pop()()}var shouldRunNow=true;if(Module["noInitialRun"])shouldRunNow=false;run();var Offsets={b2Body:{type:0,islandIndex:8,xf:12,xf0:28,sweep:44,linearVelocity:80,angularVelocity:88,force:92,torque:100,world:104,prev:108,next:112,fixtureList:116,fixtureCount:120,jointList:124,contactList:128,mass:132,invMass:136,I:140,invI:144,linearDamping:148,angularDamping:152,gravityScale:156,sleepTime:160,userData:164},b2Contact:{flags:4,prev:8,next:12,nodeA:16,nodeB:32,fixtureA:48,fixtureB:52,indexA:56,indexB:60,manifold:64,toiCount:128,toi:132,friction:136,restitution:140,tangentSpeed:144},
-b2Fixture:{density:0,next:4,body:8,shape:12,friction:16,restitution:20,proxies:24,proxyCount:28,filter:32,isSensor:38,userData:40},b2ParticleGroup:{system:0,firstIndex:4,lastIndex:8,groupFlags:12,strength:16,prev:20,next:24,timestamp:28,mass:32,inertia:36,center:40,linearVelocity:48,angularVelocity:56,transform:60,userData:76},b2WorldManifold:{normal:0,points:8,separations:24},b2World:{bodyList:102960}};var FLT_EPSILON=1.1920929E-7;function b2Max(a,b){return new b2Vec2(Math.max(a.x,b.x),Math.max(a.y,b.y))}function b2Min(a,b){return new b2Vec2(Math.min(a.x,b.x),Math.min(a.y,b.y))}function b2Clamp(a,low,high){return b2Max(low,b2Min(a,high))}function b2Vec2(x,y){if(x===undefined)x=0;if(y===undefined)y=0;this.x=x;this.y=y}b2Vec2.Add=function(out,a,b){out.x=a.x+b.x;out.y=a.y+b.y};b2Vec2.CrossScalar=function(output,input,scalar){output.x=-scalar*input.y;output.y=scalar*input.x};
-b2Vec2.Cross=function(a,b){return a.x*b.y-a.y*b.x};b2Vec2.MulScalar=function(out,input,scalar){out.x=input.x*scalar;out.y=input.y*scalar};b2Vec2.Mul=function(out,T,v){var Tp=T.p;var Tqc=T.q.c;var Tqs=T.q.s;var x=v.x;var y=v.y;out.x=Tqc*x-Tqs*y+Tp.x;out.y=Tqs*x+Tqc*y+Tp.y};b2Vec2.Normalize=function(out,input){var length=input.Length();if(length<FLT_EPSILON){out.x=0;out.y=0;return}var invLength=1/length;out.x=input.x*invLength;out.y=input.y*invLength};
-b2Vec2.Sub=function(out,input,subtract){out.x=input.x-subtract.x;out.y=input.y-subtract.y};b2Vec2.prototype.Clone=function(){return new b2Vec2(this.x,this.y)};b2Vec2.prototype.Set=function(x,y){this.x=x;this.y=y};b2Vec2.prototype.Length=function(){var x=this.x;var y=this.y;return Math.sqrt(x*x+y*y)};b2Vec2.prototype.LengthSquared=function(){var x=this.x;var y=this.y;return x*x+y*y};function b2Rot(radians){if(radians===undefined)radians=0;this.s=Math.sin(radians);this.c=Math.cos(radians)}
-b2Rot.prototype.Set=function(radians){this.s=Math.sin(radians);this.c=Math.cos(radians)};b2Rot.prototype.SetIdentity=function(){this.s=0;this.c=1};b2Rot.prototype.GetXAxis=function(){return new b2Vec2(this.c,this.s)};function b2Transform(position,rotation){if(position===undefined)position=new b2Vec2;if(rotation===undefined)rotation=new b2Rot;this.p=position;this.q=rotation}b2Transform.prototype.FromFloat64Array=function(arr){var p=this.p;var q=this.q;p.x=arr[0];p.y=arr[1];q.s=arr[2];q.c=arr[3]};
-b2Transform.prototype.SetIdentity=function(){this.p.Set(0,0);this.q.SetIdentity()};function b2AABB(){this.lowerBound=new b2Vec2;this.upperBound=new b2Vec2}b2AABB.prototype.GetCenter=function(){var sum=new b2Vec2;b2Vec2.Add(sum,this.lowerBound,this.upperBound);b2Vec2.MulScalar(sum,sum,.5)};var b2Manifold_GetPointCount=Module.cwrap("b2Manifold_GetPointCount","number",["number"]);function b2Manifold(ptr){this.ptr=ptr}b2Manifold.prototype.GetPointCount=function(){return b2Manifold_GetPointCount(this.ptr)};var b2WorldManifold_points_offset=Offsets.b2WorldManifold.points;
+function abort(text){
+	if(text){
+		Module.print(text);
+		Module.printErr(text)
+	}
+	ABORT=true;
+	EXITSTATUS=1;
+	var extra="\nIf this abort() is unexpected, build with -s ASSERTIONS=1 which can give more information.";
+	throw"abort() at "+stackTrace()+extra;
+}
+Module["abort"]=Module.abort=abort;
+if(Module["preInit"]){
+	if(typeof Module["preInit"]=="function")Module["preInit"]=[Module["preInit"]];
+	while(Module["preInit"].length>0)Module["preInit"].pop()()}var shouldRunNow=true;
+	if(Module["noInitialRun"])shouldRunNow=false;
+	run();
+	var Offsets={b2Body:{type:0,islandIndex:8,xf:12,xf0:28,sweep:44,linearVelocity:80,angularVelocity:88,force:92,torque:100,world:104,prev:108,next:112,fixtureList:116,fixtureCount:120,jointList:124,contactList:128,mass:132,invMass:136,I:140,invI:144,linearDamping:148,angularDamping:152,gravityScale:156,sleepTime:160,userData:164},b2Contact:{flags:4,prev:8,next:12,nodeA:16,nodeB:32,fixtureA:48,fixtureB:52,indexA:56,indexB:60,manifold:64,toiCount:128,toi:132,friction:136,restitution:140,tangentSpeed:144},b2Fixture:{density:0,next:4,body:8,shape:12,friction:16,restitution:20,proxies:24,proxyCount:28,filter:32,isSensor:38,userData:40},b2ParticleGroup:{system:0,firstIndex:4,lastIndex:8,groupFlags:12,strength:16,prev:20,next:24,timestamp:28,mass:32,inertia:36,center:40,linearVelocity:48,angularVelocity:56,transform:60,userData:76},b2WorldManifold:{normal:0,points:8,separations:24},b2World:{bodyList:102960}
+};
+var FLT_EPSILON=1.1920929E-7;
+function b2Max(a,b){return new b2Vec2(Math.max(a.x,b.x),Math.max(a.y,b.y))}function b2Min(a,b){return new b2Vec2(Math.min(a.x,b.x),Math.min(a.y,b.y))}function b2Clamp(a,low,high){return b2Max(low,b2Min(a,high))}
+function b2Vec2(x,y){
+	if(x===undefined)x=0;
+	if(y===undefined)y=0;
+	this.x=x;
+	this.y=y
+}
+b2Vec2.Add=function(out,a,b){
+	out.x=a.x+b.x;
+	out.y=a.y+b.y
+};
+b2Vec2.CrossScalar=function(output,input,scalar){
+	output.x=-scalar*input.y;
+	output.y=scalar*input.x
+};
+b2Vec2.Cross=function(a,b){
+	return a.x*b.y-a.y*b.x
+};
+b2Vec2.MulScalar=function(out,input,scalar){
+	out.x=input.x*scalar;
+	out.y=input.y*scalar
+};
+b2Vec2.Mul=function(out,T,v){
+	var Tp=T.p;
+	var Tqc=T.q.c;
+	var Tqs=T.q.s;
+	var x=v.x;
+	var y=v.y;
+	out.x=Tqc*x-Tqs*y+Tp.x;
+	out.y=Tqs*x+Tqc*y+Tp.y
+};
+b2Vec2.Normalize=function(out,input){
+	var length=input.Length();
+	if(length<FLT_EPSILON){
+		out.x=0;out.y=0;
+		return
+	}
+	var invLength=1/length;
+	out.x=input.x*invLength;
+	out.y=input.y*invLength
+};
+b2Vec2.Sub=function(out,input,subtract){
+	out.x=input.x-subtract.x;
+	out.y=input.y-subtract.y
+};
+b2Vec2.prototype.Clone=function(){
+	return new b2Vec2(this.x,this.y)
+};
+b2Vec2.prototype.Set=function(x,y){
+	this.x=x;
+	this.y=y
+};
+b2Vec2.prototype.Length=function(){
+	var x=this.x;
+	var y=this.y;
+	return Math.sqrt(x*x+y*y)
+};
+b2Vec2.prototype.LengthSquared=function(){
+	var x=this.x;
+	var y=this.y;
+	return x*x+y*y
+};
+b2Vec2.distance=function(a,b){
+	var dx=a.x-b.x;
+	var dy=a.y-b.y;
+	return Math.sqrt(dx*dx+dy*dy);
+}
+function b2Rot(radians){if(radians===undefined)radians=0;this.s=Math.sin(radians);this.c=Math.cos(radians)}
+b2Rot.prototype.Set=function(radians){this.s=Math.sin(radians);this.c=Math.cos(radians)};b2Rot.prototype.SetIdentity=function(){this.s=0;this.c=1};b2Rot.prototype.GetXAxis=function(){return new b2Vec2(this.c,this.s)};
+function b2Transform(position,rotation){
+	if(position===undefined)position=new b2Vec2;
+	if(rotation===undefined)rotation=new b2Rot;
+	this.p=position;
+	this.q=rotation
+}
+b2Transform.prototype.FromFloat64Array=function(arr){var p=this.p;var q=this.q;p.x=arr[0];p.y=arr[1];q.s=arr[2];q.c=arr[3]};
+b2Transform.prototype.SetIdentity=function(){this.p.Set(0,0);this.q.SetIdentity()};function b2AABB(){this.lowerBound=new b2Vec2;this.upperBound=new b2Vec2}b2AABB.prototype.GetCenter=function(){var sum=new b2Vec2;b2Vec2.Add(sum,this.lowerBound,this.upperBound);b2Vec2.MulScalar(sum,sum,.5)};var b2Manifold_GetPointCount=Module.cwrap("b2Manifold_GetPointCount","number",["number"]);function b2Manifold(ptr){this.ptr=ptr}b2Manifold.prototype.GetPointCount=function(){return b2Manifold_GetPointCount(this.ptr)};
+var b2WorldManifold_points_offset=Offsets.b2WorldManifold.points;
 function b2WorldManifold(ptr){this.buffer=new DataView(Module.HEAPU8.buffer,ptr);this.ptr=ptr}b2WorldManifold.prototype.GetPoint=function(i){var point=new b2Vec2;point.x=this.buffer.getFloat32(i*2+b2WorldManifold_points_offset,true);point.y=this.buffer.getFloat32(i*2+4+b2WorldManifold_points_offset,true);return point};var b2EdgeShape_CreateFixture=Module.cwrap("b2EdgeShape_CreateFixture","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);function b2EdgeShape(){this.hasVertex0=false;this.hasVertex3=false;this.vertex0=new b2Vec2;this.vertex1=new b2Vec2;this.vertex2=new b2Vec2;this.vertex3=new b2Vec2;this.type=b2Shape_Type_e_edge}
 b2EdgeShape.prototype.Set=function(v1,v2){this.vertex1=v1;this.vertex2=v2;this.hasVertex0=false;this.hasVertex3=false};
 b2EdgeShape.prototype._CreateFixture=function(body,fixtureDef){return b2EdgeShape_CreateFixture(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,this.hasVertex0,this.hasVertex3,this.vertex0.x,this.vertex0.y,this.vertex1.x,this.vertex1.y,this.vertex2.x,this.vertex2.y,this.vertex3.x,this.vertex3.y)};var b2PolygonShape_CreateFixture_3=Module.cwrap("b2PolygonShape_CreateFixture_3","number",["number","number","number","number","number","number","number","number","number","number","number","number"]);var b2PolygonShape_CreateFixture_4=Module.cwrap("b2PolygonShape_CreateFixture_4","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
@@ -1402,64 +1533,407 @@ var b2PolygonShape_CreateFixture_5=Module.cwrap("b2PolygonShape_CreateFixture_5"
 var b2PolygonShape_CreateFixture_7=Module.cwrap("b2PolygonShape_CreateFixture_7","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
 var b2PolygonShape_CreateFixture_8=Module.cwrap("b2PolygonShape_CreateFixture_8","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
 var b2PolygonShape_CreateParticleGroup_4=Module.cwrap("b2PolygonShape_CreateParticleGroup_4","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
-var b2PolygonShape_DestroyParticlesInShape_4=Module.cwrap("b2PolygonShape_DestroyParticlesInShape_4","number",["number","number","number","number","number","number","number","number","number","number","number","number","number"]);function b2PolygonShape(){this.position=new b2Vec2;this.vertices=[];this.type=b2Shape_Type_e_polygon}
-b2PolygonShape.prototype.SetAsBoxXY=function(hx,hy){this.vertices[0]=new b2Vec2(-hx,-hy);this.vertices[1]=new b2Vec2(hx,-hy);this.vertices[2]=new b2Vec2(hx,hy);this.vertices[3]=new b2Vec2(-hx,hy)};
-b2PolygonShape.prototype.SetAsBoxXYCenterAngle=function(hx,hy,center,angle){this.vertices[0]=new b2Vec2(-hx,-hy);this.vertices[1]=new b2Vec2(hx,-hy);this.vertices[2]=new b2Vec2(hx,hy);this.vertices[3]=new b2Vec2(-hx,hy);var xf=new b2Transform;xf.p=center;xf.q.Set(angle);for(var i=0;i<4;i++)b2Vec2.Mul(this.vertices[i],xf,this.vertices[i])};
-b2PolygonShape.prototype._CreateFixture=function(body,fixtureDef){var vertices=this.vertices;switch(vertices.length){case 3:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];return b2PolygonShape_CreateFixture_3(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y);break;case 4:var v0=vertices[0];var v1=vertices[1];var v2=
-vertices[2];var v3=vertices[3];return b2PolygonShape_CreateFixture_4(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y,v3.x,v3.y);break;case 5:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];var v3=vertices[3];var v4=vertices[4];return b2PolygonShape_CreateFixture_5(body.ptr,fixtureDef.density,fixtureDef.friction,
+var b2PolygonShape_DestroyParticlesInShape_4=Module.cwrap("b2PolygonShape_DestroyParticlesInShape_4","number",["number","number","number","number","number","number","number","number","number","number","number","number","number"]);
+
+function b2Color(rr, gg, bb) {
+   if (rr === undefined) rr = 0;
+   if (gg === undefined) gg = 0;
+   if (bb === undefined) bb = 0;
+   this._r = rr;
+   this._g = gg;
+   this._b = bb;
+}
+function b2PolygonShape(){
+	this.position=new b2Vec2;
+	this.vertices=[];
+	this.type=b2Shape_Type_e_polygon;
+	this.color=new b2Color(0,0,0);
+	this.line=1;
+}
+b2PolygonShape.prototype.SetColor = function(r, g, b){
+  if (r === undefined) r = 0;
+  if (g === undefined) g = 0;
+  if (b === undefined) b = 0;
+  this.color=new b2Color(r, g, b);
+} 
+b2PolygonShape.prototype.SetAsBoxXY=function(hx,hy){
+	this.vertices[0]=new b2Vec2(-hx,-hy);
+	this.vertices[1]=new b2Vec2(hx,-hy);
+	this.vertices[2]=new b2Vec2(hx,hy);
+	this.vertices[3]=new b2Vec2(-hx,hy)
+};
+b2PolygonShape.prototype.SetAsBoxXYCenterAngle=function(hx,hy,center,angle){
+	this.vertices[0]=new b2Vec2(-hx,-hy);
+	this.vertices[1]=new b2Vec2(hx,-hy);
+	this.vertices[2]=new b2Vec2(hx,hy);
+	this.vertices[3]=new b2Vec2(-hx,hy);
+	var xf=new b2Transform;
+	xf.p=center;
+	xf.q.Set(angle);
+	for(var i=0;i<4;i++)
+		b2Vec2.Mul(this.vertices[i],xf,this.vertices[i])
+};
+b2PolygonShape.prototype._CreateFixture=function(body,fixtureDef){
+	var vertices=this.vertices;
+	switch(vertices.length){
+		case 3:var v0=vertices[0];
+				var v1=vertices[1];
+				var v2=vertices[2];
+				return b2PolygonShape_CreateFixture_3(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y);
+				break;
+		case 4:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];var v3=vertices[3];return b2PolygonShape_CreateFixture_4(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y,v3.x,v3.y);break;
+		case 5:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];var v3=vertices[3];var v4=vertices[4];return b2PolygonShape_CreateFixture_5(body.ptr,fixtureDef.density,fixtureDef.friction,
 fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y,v3.x,v3.y,v4.x,v4.y);break;case 6:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];var v3=vertices[3];var v4=vertices[4];var v5=vertices[5];return b2PolygonShape_CreateFixture_6(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,
 fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y,v3.x,v3.y,v4.x,v4.y,v5.x,v5.y);break;case 7:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];var v3=vertices[3];var v4=vertices[4];var v5=vertices[5];var v6=vertices[6];return b2PolygonShape_CreateFixture_7(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,
 v0.y,v1.x,v1.y,v2.x,v2.y,v3.x,v3.y,v4.x,v4.y,v5.x,v5.y,v6.x,v6.y);break;case 8:var v0=vertices[0];var v1=vertices[1];var v2=vertices[2];var v3=vertices[3];var v4=vertices[4];var v5=vertices[5];var v6=vertices[6];var v7=vertices[7];return b2PolygonShape_CreateFixture_8(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,v0.x,v0.y,v1.x,v1.y,v2.x,v2.y,v3.x,
 v3.y,v4.x,v4.y,v5.x,v5.y,v6.x,v6.y,v6.x,v7.y);break}};
 b2PolygonShape.prototype._CreateParticleGroup=function(particleSystem,pgd){var v=this.vertices;switch(v.length){case 3:break;case 4:return b2PolygonShape_CreateParticleGroup_4(particleSystem.ptr,pgd.angle,pgd.angularVelocity,pgd.color.r,pgd.color.g,pgd.color.b,pgd.color.a,pgd.flags,pgd.group.ptr,pgd.groupFlags,pgd.lifetime,pgd.linearVelocity.x,pgd.linearVelocity.y,pgd.position.x,pgd.position.y,pgd.positionData,pgd.particleCount,pgd.strength,pgd.stride,pgd.userData,v[0].x,v[0].y,v[1].x,v[1].y,v[2].x,
-v[2].y,v[3].x,v[3].y);break}};b2PolygonShape.prototype._DestroyParticlesInShape=function(ps,xf){var v=this.vertices;switch(v.length){case 3:break;case 4:return b2PolygonShape_DestroyParticlesInShape_4(ps.ptr,v[0].x,v[0].y,v[1].x,v[1].y,v[2].x,v[2].y,v[3].x,v[3].y,xf.p.x,xf.p.y,xf.q.s,xf.q.c);break}};
-b2PolygonShape.prototype.Validate=function(){for(var i=0,max=this.vertices.length;i<max;++i){var i1=i;var i2=i<max-1?i1+1:0;var p=this.vertices[i1];var e=this.vertices[i2];var eSubP=new b2Vec2;b2Vec2.Sub(eSubP,e,p);for(var j=0;j<max;++j){if(j==i1||j==i2)continue;var v=new b2Vec2;b2Vec2.Sub(v,this.vertices[j],p);var c=b2Vec2.Cross(eSubP,v);if(c<0)return false}}return true};var b2Shape_Type_e_circle=0;var b2Shape_Type_e_edge=1;var b2Shape_Type_e_polygon=2;var b2Shape_Type_e_chain=3;var b2Shape_Type_e_typeCount=4;var b2_linearSlop=.005;var b2_polygonRadius=2*b2_linearSlop;var b2_maxPolygonVertices=8;function b2MassData(mass,center,I){this.mass=mass;this.center=center;this.I=I};var b2ChainShape_CreateFixture=Module.cwrap("b2ChainShape_CreateFixture","number",["number","number","number","number","number","number","number","number"]);function b2ChainShape(){this.radius=b2_polygonRadius;this.vertices=[];this.type=b2Shape_Type_e_chain}b2ChainShape.prototype.CreateLoop=function(){this.vertices.push(this.vertices[0])};
+v[2].y,v[3].x,v[3].y);break}};
+b2PolygonShape.prototype._DestroyParticlesInShape=function(ps,xf){
+	var v=this.vertices;
+	switch(v.length){
+		case 3:break;
+		case 4:return b2PolygonShape_DestroyParticlesInShape_4(ps.ptr,v[0].x,v[0].y,v[1].x,v[1].y,v[2].x,v[2].y,v[3].x,v[3].y,xf.p.x,xf.p.y,xf.q.s,xf.q.c);
+		break
+	}
+};
+b2PolygonShape.prototype.Validate=function(){for(var i=0,max=this.vertices.length;i<max;++i){var i1=i;var i2=i<max-1?i1+1:0;var p=this.vertices[i1];var e=this.vertices[i2];
+	var eSubP=new b2Vec2;
+	b2Vec2.Sub(eSubP,e,p);for(var j=0;j<max;++j){if(j==i1||j==i2)continue;var v=new b2Vec2;b2Vec2.Sub(v,this.vertices[j],p);var c=b2Vec2.Cross(eSubP,v);if(c<0)return false}}return true};var b2Shape_Type_e_circle=0;var b2Shape_Type_e_edge=1;var b2Shape_Type_e_polygon=2;var b2Shape_Type_e_chain=3;var b2Shape_Type_e_typeCount=4;var b2_linearSlop=.005;var b2_polygonRadius=2*b2_linearSlop;var b2_maxPolygonVertices=8;function b2MassData(mass,center,I){this.mass=mass;this.center=center;this.I=I};var b2ChainShape_CreateFixture=Module.cwrap("b2ChainShape_CreateFixture","number",["number","number","number","number","number","number","number","number"]);
+	function b2ChainShape(){this.radius=b2_polygonRadius;this.vertices=[];this.type=b2Shape_Type_e_chain}b2ChainShape.prototype.CreateLoop=function(){this.vertices.push(this.vertices[0])};
 b2ChainShape.prototype._CreateFixture=function(body,fixtureDef){var vertices=this.vertices;var chainLength=vertices.length;var dataLength=chainLength*2;var data=new Float32Array(dataLength);for(var i=0,j=0;i<dataLength;i+=2,j++){data[i]=vertices[j].x;data[i+1]=vertices[j].y}var nDataBytes=data.length*data.BYTES_PER_ELEMENT;var dataPtr=Module._malloc(nDataBytes);var dataHeap=new Uint8Array(Module.HEAPU8.buffer,dataPtr,nDataBytes);dataHeap.set(new Uint8Array(data.buffer));var fixture=b2ChainShape_CreateFixture(body.ptr,
-fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,dataHeap.byteOffset,data.length);Module._free(dataHeap.byteOffset);return fixture};var b2CircleShape_CreateFixture=Module.cwrap("b2CircleShape_CreateFixture","number",["number","number","number","number","number","number","number","number","number"]);var b2CircleShape_CreateParticleGroup=Module.cwrap("b2CircleShape_CreateParticleGroup","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
-var b2CircleShape_DestroyParticlesInShape=Module.cwrap("b2CircleShape_DestroyParticlesInShape","number",["number","number","number","number","number","number","number","number"]);function b2CircleShape(){this.position=new b2Vec2;this.radius=0;this.type=b2Shape_Type_e_circle}
-b2CircleShape.prototype._CreateFixture=function(body,fixtureDef){return b2CircleShape_CreateFixture(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,this.position.x,this.position.y,this.radius)};
+fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,dataHeap.byteOffset,data.length);Module._free(dataHeap.byteOffset);return fixture};
+var b2CircleShape_CreateFixture=Module.cwrap("b2CircleShape_CreateFixture","number",["number","number","number","number","number","number","number","number","number"]);
+var b2CircleShape_CreateParticleGroup=Module.cwrap("b2CircleShape_CreateParticleGroup","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
+var b2CircleShape_DestroyParticlesInShape=Module.cwrap("b2CircleShape_DestroyParticlesInShape","number",["number","number","number","number","number","number","number","number"]);
+function b2CircleShape(){
+	this.position=new b2Vec2;
+	this.radius=0;
+	this.type=b2Shape_Type_e_circle;
+	this.fil=true;
+}
+b2CircleShape.prototype._CreateFixture=function(body,fixtureDef){
+	return b2CircleShape_CreateFixture(body.ptr,fixtureDef.density,fixtureDef.friction,fixtureDef.isSensor,fixtureDef.restitution,fixtureDef.userData,fixtureDef.filter.categoryBits,fixtureDef.filter.groupIndex,fixtureDef.filter.maskBits,this.position.x,this.position.y,this.radius)
+};
 b2CircleShape.prototype._CreateParticleGroup=function(particleSystem,pgd){return b2CircleShape_CreateParticleGroup(particleSystem.ptr,pgd.angle,pgd.angularVelocity,pgd.color.r,pgd.color.g,pgd.color.b,pgd.color.a,pgd.flags,pgd.group.ptr,pgd.groupFlags,pgd.lifetime,pgd.linearVelocity.x,pgd.linearVelocity.y,pgd.position.x,pgd.position.y,pgd.positionData,pgd.particleCount,pgd.strength,pgd.stride,pgd.userData,this.position.x,this.position.y,this.radius)};
 b2CircleShape.prototype._DestroyParticlesInShape=function(ps,xf){return b2CircleShape_DestroyParticlesInShape(ps.ptr,this.position.x,this.position.y,this.radius,xf.p.x,xf.p.y,xf.q.s,xf.q.c)};var b2Body_ApplyAngularImpulse=Module.cwrap("b2Body_ApplyAngularImpulse","null",["number","number","number"]);var b2Body_ApplyForce=Module.cwrap("b2Body_ApplyForce","number",["number","number","number","number","number","number"]);var b2Body_ApplyForceToCenter=Module.cwrap("b2Body_ApplyForceToCenter","number",["number","number","number","number"]);var b2Body_ApplyTorque=Module.cwrap("b2Body_ApplyTorque","number",["number","number","number"]);
-var b2Body_DestroyFixture=Module.cwrap("b2Body_DestroyFixture","null",["number","number"]);var b2Body_GetAngle=Module.cwrap("b2Body_GetAngle","number",["number"]);var b2Body_GetAngularVelocity=Module.cwrap("b2Body_GetAngularVelocity","number",["number"]);var b2Body_GetInertia=Module.cwrap("b2Body_GetInertia","number",["number"]);var b2Body_GetLinearVelocity=Module.cwrap("b2Body_GetLinearVelocity","null",["number","number"]);
-var b2Body_GetLocalPoint=Module.cwrap("b2Body_GetLocalPoint","null",["number","number","number","number"]);var b2Body_GetLocalVector=Module.cwrap("b2Body_GetLocalVector","null",["number","number","number","number"]);var b2Body_GetMass=Module.cwrap("b2Body_GetMass","number",["number"]);var b2Body_GetPosition=Module.cwrap("b2Body_GetPosition","null",["number","number"]);var b2Body_GetTransform=Module.cwrap("b2Body_GetTransform","null",["number","number"]);
-var b2Body_GetType=Module.cwrap("b2Body_GetType","number",["number"]);var b2Body_GetWorldCenter=Module.cwrap("b2Body_GetWorldCenter","null",["number","number"]);var b2Body_GetWorldPoint=Module.cwrap("b2Body_GetWorldPoint","null",["number","number","number","number"]);var b2Body_GetWorldVector=Module.cwrap("b2Body_GetWorldVector","null",["number","number","number","number"]);var b2Body_SetAngularVelocity=Module.cwrap("b2Body_SetAngularVelocity","null",["number","number"]);
-var b2Body_SetAwake=Module.cwrap("b2Body_SetAwake","number",["number","number"]);var b2Body_SetLinearVelocity=Module.cwrap("b2Body_SetLinearVelocity","null",["number","number","number"]);var b2Body_SetMassData=Module.cwrap("b2Body_SetMassData","null",["number","number","number","number","number"]);var b2Body_SetTransform=Module.cwrap("b2Body_SetTransform","null",["number","number","number"]);var b2Body_SetType=Module.cwrap("b2Body_SetType","null",["number","number"]);var b2Body_xf_offset=Offsets.b2Body.xf;
-var b2Body_userData_offset=Offsets.b2Body.userData;function b2Body(ptr){this.buffer=new DataView(Module.HEAPU8.buffer,ptr);this.ptr=ptr;this.fixtures=[]}b2Body.prototype.ApplyAngularImpulse=function(force,wake){b2Body_ApplyAngularImpulse(this.ptr,force,wake)};b2Body.prototype.ApplyForce=function(force,point,wake){b2Body_ApplyForce(this.ptr,force.x,force.y,point.x,point.y,wake)};b2Body.prototype.ApplyForceToCenter=function(force,wake){b2Body_ApplyForceToCenter(this.ptr,force.x,force.y,wake)};
-b2Body.prototype.ApplyTorque=function(force,wake){b2Body_ApplyTorque(this.ptr,force,wake)};b2Body.prototype.CreateFixtureFromDef=function(fixtureDef){var fixture=new b2Fixture;fixture.FromFixtureDef(fixtureDef);fixture._SetPtr(fixtureDef.shape._CreateFixture(this,fixtureDef));fixture.body=this;b2World._Push(fixture,this.fixtures);world.fixturesLookup[fixture.ptr]=fixture;return fixture};
-b2Body.prototype.CreateFixtureFromShape=function(shape,density){var fixtureDef=new b2FixtureDef;fixtureDef.shape=shape;fixtureDef.density=density;return this.CreateFixtureFromDef(fixtureDef)};b2Body.prototype.DestroyFixture=function(fixture){b2Body_DestroyFixture(this.ptr,fixture.ptr);b2World._RemoveItem(fixture,this.fixtures)};b2Body.prototype.GetAngle=function(){return b2Body_GetAngle(this.ptr)};b2Body.prototype.GetAngularVelocity=function(){return b2Body_GetAngularVelocity(this.ptr)};
-b2Body.prototype.GetInertia=function(){return b2Body_GetInertia(this.ptr)};b2Body.prototype.GetMass=function(){return b2Body_GetMass(this.ptr)};b2Body.prototype.GetLinearVelocity=function(){b2Body_GetLinearVelocity(this.ptr,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};
-b2Body.prototype.GetLocalPoint=function(vec){b2Body_GetLocalPoint(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};b2Body.prototype.GetLocalVector=function(vec){b2Body_GetLocalVector(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};
-b2Body.prototype.GetPosition=function(){b2Body_GetPosition(this.ptr,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};
-b2Body.prototype.GetTransform=function(){var transform=new b2Transform;transform.p.x=this.buffer.getFloat32(b2Body_xf_offset,true);transform.p.y=this.buffer.getFloat32(b2Body_xf_offset+4,true);transform.q.s=this.buffer.getFloat32(b2Body_xf_offset+8,true);transform.q.c=this.buffer.getFloat32(b2Body_xf_offset+12,true);return transform};b2Body.prototype.GetType=function(){return b2Body_GetType(this.ptr)};b2Body.prototype.GetUserData=function(){return this.buffer.getUint32(b2Body_userData_offset,true)};
-b2Body.prototype.GetWorldCenter=function(){b2Body_GetWorldCenter(this.ptr,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};b2Body.prototype.GetWorldPoint=function(vec){b2Body_GetWorldPoint(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};
-b2Body.prototype.GetWorldVector=function(vec){b2Body_GetWorldVector(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);return new b2Vec2(result[0],result[1])};b2Body.prototype.SetAngularVelocity=function(angle){b2Body_SetAngularVelocity(this.ptr,angle)};b2Body.prototype.SetAwake=function(flag){b2Body_SetAwake(this.ptr,flag)};b2Body.prototype.SetLinearVelocity=function(v){b2Body_SetLinearVelocity(this.ptr,v.x,v.y)};
-b2Body.prototype.SetMassData=function(massData){b2Body_SetMassData(this.ptr,massData.mass,massData.center.x,massData.center.y,massData.I)};b2Body.prototype.SetTransform=function(v,angle){b2Body_SetTransform(this.ptr,v.x,v.y,angle)};b2Body.prototype.SetType=function(type){b2Body_SetType(this.ptr,type)};var b2_staticBody=0;var b2_kinematicBody=1;var b2_dynamicBody=2;
-function b2BodyDef(){this.active=true;this.allowSleep=true;this.angle=0;this.angularVelocity=0;this.angularDamping=0;this.awake=true;this.bullet=false;this.fixedRotation=false;this.gravityScale=1;this.linearDamping=0;this.linearVelocity=new b2Vec2;this.position=new b2Vec2;this.type=b2_staticBody;this.userData=null};b2World.BeginContactBody=function(contactPtr){if(world.listener.BeginContactBody===undefined)return;var contact=new b2Contact(contactPtr);world.listener.BeginContactBody(contact)};b2World.EndContactBody=function(contactPtr){if(world.listener.EndContactBody===undefined)return;var contact=new b2Contact(contactPtr);world.listener.EndContactBody(contact)};
-b2World.PreSolve=function(contactPtr,oldManifoldPtr){if(world.listener.PreSolve===undefined)return;world.listener.PreSolve(new b2Contact(contactPtr),new b2Manifold(oldManifoldPtr))};b2World.PostSolve=function(contactPtr,impulsePtr){if(world.listener.PostSolve===undefined)return;world.listener.PostSolve(new b2Contact(contactPtr),new b2ContactImpulse(impulsePtr))};b2World.QueryAABB=function(fixturePtr){return world.queryAABBCallback.ReportFixture(world.fixturesLookup[fixturePtr])};
-b2World.RayCast=function(fixturePtr,pointX,pointY,normalX,normalY,fraction){return world.rayCastCallback.ReportFixture(world.fixturesLookup[fixturePtr],new b2Vec2(pointX,pointY),new b2Vec2(normalX,normalY),fraction)};var b2World_Create=Module.cwrap("b2World_Create","number",["number","number"]);
-var b2World_CreateBody=Module.cwrap("b2World_CreateBody","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);var b2World_CreateParticleSystem=Module.cwrap("b2World_CreateParticleSystem","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
-var b2World_DestroyBody=Module.cwrap("b2World_DestroyBody","null",["number","number"]);var b2World_DestroyJoint=Module.cwrap("b2World_DestroyJoint","null",["number","number"]);var b2World_DestroyParticleSystem=Module.cwrap("b2World_DestroyParticleSystem","null",["number","number"]);var b2World_QueryAABB=Module.cwrap("b2World_QueryAABB","null",["number","number","number","number","number"]);var b2World_RayCast=Module.cwrap("b2World_RayCast","null",["number","number","number","number","number"]);
-var b2World_SetContactListener=Module.cwrap("b2World_SetContactListener","null",["number"]);var b2World_SetGravity=Module.cwrap("b2World_SetGravity","null",["number","number","number"]);var b2World_Step=Module.cwrap("b2World_Step","null",["number","number","number"]);var _transBuf=null;var _vec2Buf=null;
-function b2World(gravity){this.bodies=[];this.bodiesLookup={};this.fixturesLookup={};this.joints=[];this.listener=null;this.particleSystems=[];this.ptr=b2World_Create(gravity.x,gravity.y);this.queryAABBCallback=null;this.rayCastCallback=null;this.buffer=new DataView(Module.HEAPU8.buffer,this.ptr);var nDataBytes=4*Float32Array.BYTES_PER_ELEMENT;var dataPtr=Module._malloc(nDataBytes);_transBuf=new Uint8Array(Module.HEAPU8.buffer,dataPtr,nDataBytes);nDataBytes=2*Float32Array.BYTES_PER_ELEMENT;dataPtr=
-Module._malloc(nDataBytes);_vec2Buf=new Uint8Array(Module.HEAPU8.buffer,dataPtr,nDataBytes)}b2World._Push=function(item,list){item.lindex=list.length;list.push(item)};b2World._RemoveItem=function(item,list){var length=list.length;var lindex=item.lindex;if(length>1){list[lindex]=list[length-1];list[lindex].lindex=lindex}list.pop()};
+var b2Body_DestroyFixture=Module.cwrap("b2Body_DestroyFixture","null",["number","number"]);
+var b2Body_GetAngle=Module.cwrap("b2Body_GetAngle","number",["number"]);
+var b2Body_GetAngularVelocity=Module.cwrap("b2Body_GetAngularVelocity","number",["number"]);
+var b2Body_GetInertia=Module.cwrap("b2Body_GetInertia","number",["number"]);
+var b2Body_GetLinearVelocity=Module.cwrap("b2Body_GetLinearVelocity","null",["number","number"]);
+var b2Body_GetLocalPoint=Module.cwrap("b2Body_GetLocalPoint","null",["number","number","number","number"]);
+var b2Body_GetLocalVector=Module.cwrap("b2Body_GetLocalVector","null",["number","number","number","number"]);
+var b2Body_GetMass=Module.cwrap("b2Body_GetMass","number",["number"]);
+var b2Body_GetPosition=Module.cwrap("b2Body_GetPosition","null",["number","number"]);
+var b2Body_GetTransform=Module.cwrap("b2Body_GetTransform","null",["number","number"]);
+var b2Body_GetType=Module.cwrap("b2Body_GetType","number",["number"]);
+var b2Body_GetWorldCenter=Module.cwrap("b2Body_GetWorldCenter","null",["number","number"]);
+var b2Body_GetWorldPoint=Module.cwrap("b2Body_GetWorldPoint","null",["number","number","number","number"]);
+var b2Body_GetWorldVector=Module.cwrap("b2Body_GetWorldVector","null",["number","number","number","number"]);
+
+var b2Body_SetAngularVelocity=Module.cwrap("b2Body_SetAngularVelocity","null",["number","number"]);
+
+var b2Body_SetAwake=Module.cwrap("b2Body_SetAwake","number",["number","number"]);
+var b2Body_SetLinearVelocity=Module.cwrap("b2Body_SetLinearVelocity","null",["number","number","number"]);
+var b2Body_SetMassData=Module.cwrap("b2Body_SetMassData","null",["number","number","number","number","number"]);
+var b2Body_SetTransform=Module.cwrap("b2Body_SetTransform","null",["number","number","number"]);
+var b2Body_SetType=Module.cwrap("b2Body_SetType","null",["number","number"]);
+var b2Body_xf_offset=Offsets.b2Body.xf;
+var b2Body_userData_offset=Offsets.b2Body.userData;
+function b2Body(ptr){
+	this.buffer=new DataView(Module.HEAPU8.buffer,ptr);
+	this.ptr=ptr;
+	this.fixtures=[]
+}
+b2Body.prototype.ApplyAngularImpulse=function(force,wake){
+	b2Body_ApplyAngularImpulse(this.ptr,force,wake)
+};
+b2Body.prototype.ApplyForce=function(force,point,wake){
+	b2Body_ApplyForce(this.ptr,force.x,force.y,point.x,point.y,wake)
+};
+b2Body.prototype.ApplyForceToCenter=function(force,wake){
+	b2Body_ApplyForceToCenter(this.ptr,force.x,force.y,wake)
+};
+b2Body.prototype.ApplyTorque=function(force,wake){
+	b2Body_ApplyTorque(this.ptr,force,wake)
+};
+b2Body.prototype.CreateFixtureFromDef=function(fixtureDef){
+	var fixture=new b2Fixture;
+	fixture.FromFixtureDef(fixtureDef);
+	fixture._SetPtr(fixtureDef.shape._CreateFixture(this,fixtureDef));
+	fixture.body=this;
+	b2World._Push(fixture,this.fixtures);
+	world.fixturesLookup[fixture.ptr]=fixture;
+	return fixture
+};
+b2Body.prototype.CreateFixtureFromShape=function(shape,density){
+	var fixtureDef=new b2FixtureDef;
+	fixtureDef.shape=shape;
+	fixtureDef.density=density;
+	return this.CreateFixtureFromDef(fixtureDef)
+};
+b2Body.prototype.DestroyFixture=function(fixture){
+	b2Body_DestroyFixture(this.ptr,fixture.ptr);
+	b2World._RemoveItem(fixture,this.fixtures)
+};
+b2Body.prototype.GetAngle=function(){
+	return b2Body_GetAngle(this.ptr)
+};
+b2Body.prototype.GetAngularVelocity=function(){
+	return b2Body_GetAngularVelocity(this.ptr)
+};
+b2Body.prototype.GetInertia=function(){
+	return b2Body_GetInertia(this.ptr)
+};
+b2Body.prototype.GetMass=function(){
+	return b2Body_GetMass(this.ptr)
+};
+b2Body.prototype.GetLinearVelocity=function(){
+	b2Body_GetLinearVelocity(this.ptr,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.GetLocalPoint=function(vec){
+	b2Body_GetLocalPoint(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.GetLocalVector=function(vec){
+	b2Body_GetLocalVector(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.GetPosition=function(){
+	b2Body_GetPosition(this.ptr,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.GetRealPos=function(){
+	var realPos=new b2Vec2();
+	b2Vec2.Mul(realPos, this.GetTransform(), this.fixtures[0].shape.position);
+	return realPos;
+}
+b2Body.prototype.GetTransform=function(){
+	var transform=new b2Transform;
+	transform.p.x=this.buffer.getFloat32(b2Body_xf_offset,true);
+	transform.p.y=this.buffer.getFloat32(b2Body_xf_offset+4,true);
+	transform.q.s=this.buffer.getFloat32(b2Body_xf_offset+8,true);
+	transform.q.c=this.buffer.getFloat32(b2Body_xf_offset+12,true);
+	return transform
+};
+b2Body.prototype.GetType=function(){
+	return b2Body_GetType(this.ptr)
+};
+b2Body.prototype.GetUserData=function(){
+	return this.buffer.getUint32(b2Body_userData_offset,true)
+};
+b2Body.prototype.GetWorldCenter=function(){
+	b2Body_GetWorldCenter(this.ptr,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.GetWorldPoint=function(vec){
+	b2Body_GetWorldPoint(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.GetWorldVector=function(vec){
+	b2Body_GetWorldVector(this.ptr,vec.x,vec.y,_vec2Buf.byteOffset);
+	var result=new Float32Array(_vec2Buf.buffer,_vec2Buf.byteOffset,_vec2Buf.length);
+	return new b2Vec2(result[0],result[1])
+};
+b2Body.prototype.SetAngularVelocity=function(angle){
+	b2Body_SetAngularVelocity(this.ptr,angle)
+};
+b2Body.prototype.SetAwake=function(flag){
+	b2Body_SetAwake(this.ptr,flag)
+};
+b2Body.prototype.SetLinearVelocity=function(v){
+	b2Body_SetLinearVelocity(this.ptr,v.x,v.y)
+};
+b2Body.prototype.SetMassData=function(massData){
+	b2Body_SetMassData(this.ptr,massData.mass,massData.center.x,massData.center.y,massData.I)
+};
+b2Body.prototype.SetTransform=function(v,angle){
+	b2Body_SetTransform(this.ptr,v.x,v.y,angle)
+};
+b2Body.prototype.SetPosition = function (p) {
+   b2Body_SetTransform(this.ptr,p.x, p.y, this.GetAngle());
+}
+b2Body.prototype.SetType=function(type){
+	b2Body_SetType(this.ptr,type)
+};
+var b2_staticBody=0;
+var b2_kinematicBody=1;
+var b2_dynamicBody=2;
+function b2BodyDef(){
+	this.active=true;
+	this.allowSleep=true;
+	this.angle=0;
+	this.angularVelocity=0;
+	this.angularDamping=0;
+	this.awake=true;
+	this.bullet=false;
+	this.fixedRotation=false;
+	this.gravityScale=1;
+	this.linearDamping=0;
+	this.linearVelocity=new b2Vec2;
+	this.position=new b2Vec2;
+	this.type=b2_staticBody;
+	this.userData=null
+};
+b2World.BeginContactBody=function(contactPtr){
+	if(world.listener.BeginContactBody===undefined)return;
+	var contact=new b2Contact(contactPtr);
+	world.listener.BeginContactBody(contact)
+};
+b2World.EndContactBody=function(contactPtr){
+	if(world.listener.EndContactBody===undefined)return;
+	var contact=new b2Contact(contactPtr);
+	world.listener.EndContactBody(contact)
+};
+b2World.PreSolve=function(contactPtr,oldManifoldPtr){
+	if(world.listener.PreSolve===undefined)return;
+	world.listener.PreSolve(new b2Contact(contactPtr),new b2Manifold(oldManifoldPtr))
+};
+b2World.PostSolve=function(contactPtr,impulsePtr){
+	if(world.listener.PostSolve===undefined)return;
+	world.listener.PostSolve(new b2Contact(contactPtr),new b2ContactImpulse(impulsePtr))
+};
+b2World.QueryAABB=function(fixturePtr){
+	return world.queryAABBCallback.ReportFixture(world.fixturesLookup[fixturePtr])
+};
+b2World.RayCast=function(fixturePtr,pointX,pointY,normalX,normalY,fraction){
+	return world.rayCastCallback.ReportFixture(world.fixturesLookup[fixturePtr],new b2Vec2(pointX,pointY),new b2Vec2(normalX,normalY),fraction)
+};
+var b2World_Create=Module.cwrap("b2World_Create","number",["number","number"]);
+var b2World_CreateBody=Module.cwrap("b2World_CreateBody","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
+var b2World_CreateParticleSystem=Module.cwrap("b2World_CreateParticleSystem","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
+var b2World_DestroyBody=Module.cwrap("b2World_DestroyBody","null",["number","number"]);
+var b2World_DestroyJoint=Module.cwrap("b2World_DestroyJoint","null",["number","number"]);
+var b2World_DestroyParticleSystem=Module.cwrap("b2World_DestroyParticleSystem","null",["number","number"]);
+var b2World_QueryAABB=Module.cwrap("b2World_QueryAABB","null",["number","number","number","number","number"]);
+var b2World_RayCast=Module.cwrap("b2World_RayCast","null",["number","number","number","number","number"]);
+var b2World_SetContactListener=Module.cwrap("b2World_SetContactListener","null",["number"]);
+var b2World_SetGravity=Module.cwrap("b2World_SetGravity","null",["number","number","number"]);
+var b2World_Step=Module.cwrap("b2World_Step","null",["number","number","number"]);
+var _transBuf=null;
+var _vec2Buf=null;
+function b2World(gravity){
+	this.bodies=[];
+	this.bodiesLookup={};
+	this.fixturesLookup={};
+	this.joints=[];
+	this.listener=null;
+	this.particleSystems=[];
+	this.ptr=b2World_Create(gravity.x,gravity.y);
+	this.queryAABBCallback=null;
+	this.rayCastCallback=null;
+	this.buffer=new DataView(Module.HEAPU8.buffer,this.ptr);
+	var nDataBytes=4*Float32Array.BYTES_PER_ELEMENT;
+	var dataPtr=Module._malloc(nDataBytes);
+	_transBuf=new Uint8Array(Module.HEAPU8.buffer,dataPtr,nDataBytes);
+	nDataBytes=2*Float32Array.BYTES_PER_ELEMENT;
+	dataPtr=Module._malloc(nDataBytes);
+	_vec2Buf=new Uint8Array(Module.HEAPU8.buffer,dataPtr,nDataBytes);
+
+	this.molecularLiquid=[];
+	this.molecules=[];
+}
+b2World._Push=function(item,list){item.lindex=list.length;list.push(item)};b2World._RemoveItem=function(item,list){var length=list.length;var lindex=item.lindex;if(length>1){list[lindex]=list[length-1];list[lindex].lindex=lindex}list.pop()};
 b2World.prototype.CreateBody=function(bodyDef){var body=new b2Body(b2World_CreateBody(this.ptr,bodyDef.active,bodyDef.allowSleep,bodyDef.angle,bodyDef.angularVelocity,bodyDef.angularDamping,bodyDef.awake,bodyDef.bullet,bodyDef.fixedRotation,bodyDef.gravityScale,bodyDef.linearDamping,bodyDef.linearVelocity.x,bodyDef.linearVelocity.y,bodyDef.position.x,bodyDef.position.y,bodyDef.type,bodyDef.userData));b2World._Push(body,this.bodies);this.bodiesLookup[body.ptr]=body;return body};
 b2World.prototype.CreateJoint=function(jointDef){var joint=jointDef.Create(this);b2World._Push(joint,this.joints);return joint};
-b2World.prototype.CreateParticleSystem=function(psd){var ps=new b2ParticleSystem(b2World_CreateParticleSystem(this.ptr,psd.colorMixingStrength,psd.dampingStrength,psd.destroyByAge,psd.ejectionStrength,psd.elasticStrength,psd.lifetimeGranularity,psd.powderStrength,psd.pressureStrength,psd.radius,psd.repulsiveStrength,psd.springStrength,psd.staticPressureIterations,psd.staticPressureRelaxation,psd.staticPressureStrength,psd.surfaceTensionNormalStrength,psd.surfaceTensionPressureStrength,psd.viscousStrength));
-b2World._Push(ps,this.particleSystems);ps.dampingStrength=psd.dampingStrength;ps.radius=psd.radius;return ps};b2World.prototype.DestroyBody=function(body){b2World_DestroyBody(this.ptr,body.ptr);b2World._RemoveItem(body,this.bodies)};b2World.prototype.DestroyJoint=function(joint){b2World_DestroyJoint(this.ptr,joint.ptr);b2World._RemoveItem(joint,this.joints)};
-b2World.prototype.DestroyParticleSystem=function(particleSystem){b2World_DestroyParticleSystem(this.ptr,particleSystem.ptr);b2World._RemoveItem(particleSystem,this.particleSystems)};b2World.prototype.QueryAABB=function(callback,aabb){this.queryAABBCallback=callback;b2World_QueryAABB(this.ptr,aabb.lowerBound.x,aabb.lowerBound.y,aabb.upperBound.x,aabb.upperBound.y)};
-b2World.prototype.RayCast=function(callback,point1,point2){this.rayCastCallback=callback;b2World_RayCast(this.ptr,point1.x,point1.y,point2.x,point2.y)};b2World.prototype.SetContactListener=function(listener){this.listener=listener;b2World_SetContactListener(this.ptr)};b2World.prototype.SetGravity=function(gravity){b2World_SetGravity(this.ptr,gravity.x,gravity.y)};b2World.prototype.Step=function(steps,vIterations,pIterations){b2World_Step(this.ptr,steps,vIterations,pIterations)};var b2WheelJoint_SetMotorSpeed=Module.cwrap("b2WheelJoint_SetMotorSpeed","null",["number","number"]);var b2WheelJoint_SetSpringFrequencyHz=Module.cwrap("b2WheelJoint_SetSpringFrequencyHz","null",["number","number"]);function b2WheelJoint(def){this.next=null;this.ptr=null}b2WheelJoint.prototype.SetMotorSpeed=function(speed){b2WheelJoint_SetMotorSpeed(this.ptr,speed)};b2WheelJoint.prototype.SetSpringFrequencyHz=function(hz){b2WheelJoint_SetSpringFrequencyHz(this.ptr,hz)};
+
+b2World.prototype.CreateParticleSystem=function(psd){
+	var ps=new b2ParticleSystem(b2World_CreateParticleSystem(this.ptr,psd.colorMixingStrength,psd.dampingStrength,psd.destroyByAge,psd.ejectionStrength,psd.elasticStrength,psd.lifetimeGranularity,psd.powderStrength,psd.pressureStrength,psd.radius,psd.repulsiveStrength,psd.springStrength,psd.staticPressureIterations,psd.staticPressureRelaxation,psd.staticPressureStrength,psd.surfaceTensionNormalStrength,psd.surfaceTensionPressureStrength,psd.viscousStrength));
+
+b2World._Push(ps,this.particleSystems);ps.dampingStrength=psd.dampingStrength;ps.radius=psd.radius;return ps};
+b2World.prototype.DestroyBody=function(body){
+	b2World_DestroyBody(this.ptr,body.ptr);
+	b2World._RemoveItem(body,this.bodies)
+};
+b2World.prototype.DestroyJoint=function(joint){
+	b2World_DestroyJoint(this.ptr,joint.ptr);
+	b2World._RemoveItem(joint,this.joints)
+};
+b2World.prototype.DestroyParticleSystem=function(particleSystem){
+	b2World_DestroyParticleSystem(this.ptr,particleSystem.ptr);
+	b2World._RemoveItem(particleSystem,this.particleSystems)
+};
+b2World.prototype.QueryAABB=function(callback,aabb){this.queryAABBCallback=callback;b2World_QueryAABB(this.ptr,aabb.lowerBound.x,aabb.lowerBound.y,aabb.upperBound.x,aabb.upperBound.y)};
+b2World.prototype.RayCast=function(callback,point1,point2){this.rayCastCallback=callback;b2World_RayCast(this.ptr,point1.x,point1.y,point2.x,point2.y)};
+b2World.prototype.SetContactListener=function(listener){
+	this.listener=listener;
+	b2World_SetContactListener(this.ptr)
+};
+b2World.prototype.SetGravity=function(gravity){b2World_SetGravity(this.ptr,gravity.x,gravity.y)};b2World.prototype.Step=function(steps,vIterations,pIterations){b2World_Step(this.ptr,steps,vIterations,pIterations)};var b2WheelJoint_SetMotorSpeed=Module.cwrap("b2WheelJoint_SetMotorSpeed","null",["number","number"]);var b2WheelJoint_SetSpringFrequencyHz=Module.cwrap("b2WheelJoint_SetSpringFrequencyHz","null",["number","number"]);function b2WheelJoint(def){this.next=null;this.ptr=null}b2WheelJoint.prototype.SetMotorSpeed=function(speed){b2WheelJoint_SetMotorSpeed(this.ptr,speed)};b2WheelJoint.prototype.SetSpringFrequencyHz=function(hz){b2WheelJoint_SetSpringFrequencyHz(this.ptr,hz)};
 var b2WheelJointDef_Create=Module.cwrap("b2WheelJointDef_Create","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);var b2WheelJointDef_InitializeAndCreate=Module.cwrap("b2WheelJointDef_InitializeAndCreate","number",["number","number","number","number","number","number","number","number","number","number","number","number","number"]);
 function b2WheelJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.dampingRatio=.7;this.enableMotor=false;this.frequencyHz=2;this.localAnchorA=new b2Vec2;this.localAnchorB=new b2Vec2;this.localAxisA=new b2Vec2(1,0);this.maxMotorTorque=0;this.motorSpeed=0}
 b2WheelJointDef.prototype.Create=function(world){var wheelJoint=new b2WheelJoint(this);wheelJoint.ptr=b2WheelJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.dampingRatio,this.enableMotor,this.frequencyHz,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.localAxisA.x,this.localAxisA.y,this.maxMotorTorque,this.motorSpeed);return wheelJoint};
 b2WheelJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor,axis){this.bodyA=bodyA;this.bodyB=bodyB;var wheelJoint=new b2WheelJoint(this);wheelJoint.ptr=b2WheelJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,axis.x,axis.y,this.collideConnected,this.dampingRatio,this.enableMotor,this.frequencyHz,this.maxMotorTorque,this.motorSpeed);b2World._Push(wheelJoint,world.joints);return wheelJoint};var b2WeldJointDef_Create=Module.cwrap("b2WeldJointDef_Create","number",["number","number","number","number","number","number","number","number","number","number"]);var b2WeldJointDef_InitializeAndCreate=Module.cwrap("b2WeldJointDef_InitializeAndCreate","number",["number","number","number","number","number","number","number","number"]);
-function b2WeldJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.dampingRatio=0;this.frequencyHz=0;this.localAnchorA=new b2Vec2;this.localAnchorB=new b2Vec2;this.referenceAngle=0}
-b2WeldJointDef.prototype.Create=function(world){var weldJoint=new b2WeldJoint(this);weldJoint.ptr=b2WeldJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.dampingRatio,this.frequencyHz,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.referenceAngle);return weldJoint};
-b2WeldJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor){this.bodyA=bodyA;this.bodyB=bodyB;var weldJoint=new b2WeldJoint(this);weldJoint.ptr=b2WeldJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,this.collideConnected,this.dampingRatio,this.frequencyHz);b2World._Push(weldJoint,world.joints);return weldJoint};function b2WeldJoint(def){this.bodyA=def.bodyA;this.bodyB=def.bodyB;this.next=null;this.ptr=null};var b2GearJoint_GetRatio=Module.cwrap("b2GearJoint_GetRatio","number",["number"]);function b2GearJoint(def){this.ptr=null;this.next=null}b2GearJoint.prototype.GetRatio=function(){return b2GearJoint_GetRatio(this.ptr)};var b2GearJointDef_Create=Module.cwrap("b2GearJointDef_Create","number",["number","number","number","number","number","number","number"]);function b2GearJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.joint1=null;this.joint2=null;this.ratio=0}
+function b2WeldJointDef(){
+	this.bodyA=null;
+	this.bodyB=null;
+	this.collideConnected=false;
+	this.dampingRatio=0;
+	this.frequencyHz=0;
+	this.localAnchorA=new b2Vec2;
+	this.localAnchorB=new b2Vec2;
+	this.referenceAngle=0
+}
+b2WeldJointDef.prototype.Create=function(world){
+	var weldJoint=new b2WeldJoint(this);
+	weldJoint.ptr=b2WeldJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.dampingRatio,this.frequencyHz,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.referenceAngle);
+	return weldJoint
+};
+b2WeldJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor){
+	this.bodyA=bodyA;
+	this.bodyB=bodyB;
+	var weldJoint=new b2WeldJoint(this);
+	weldJoint.ptr=b2WeldJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,this.collideConnected,this.dampingRatio,this.frequencyHz);
+	b2World._Push(weldJoint,world.joints);
+	return weldJoint
+};
+function b2WeldJoint(def){
+	this.bodyA=def.bodyA;
+	this.bodyB=def.bodyB;
+	this.next=null;
+	this.ptr=null
+};
+var b2GearJoint_GetRatio=Module.cwrap("b2GearJoint_GetRatio","number",["number"]);function b2GearJoint(def){this.ptr=null;this.next=null}b2GearJoint.prototype.GetRatio=function(){return b2GearJoint_GetRatio(this.ptr)};var b2GearJointDef_Create=Module.cwrap("b2GearJointDef_Create","number",["number","number","number","number","number","number","number"]);function b2GearJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.joint1=null;this.joint2=null;this.ratio=0}
 b2GearJointDef.prototype.Create=function(world){var gearJoint=new b2GearJoint(this);gearJoint.ptr=b2GearJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.joint1.ptr,this.joint2.ptr,this.ratio);return gearJoint};var e_unknownJoint=0;var e_revoluteJoint=1;var e_prismaticJoint=2;var e_distanceJoint=3;var e_pulleyJoint=4;var e_mouseJoint=5;var e_gearJoint=6;var e_wheelJoint=7;var e_weldJoint=8;var e_frictionJoint=9;var e_ropeJoint=10;var e_motorJoint=11;var b2Joint_GetBodyA=Module.cwrap("b2Joint_GetBodyA","number",["number"]);var b2Joint_GetBodyB=Module.cwrap("b2Joint_GetBodyB","number",["number"]);function b2Joint(){}b2Joint.prototype.GetBodyA=function(){return world.bodiesLookup[b2Joint_GetBodyA(this.ptr)]};
 b2Joint.prototype.GetBodyB=function(){return world.bodiesLookup[b2Joint_GetBodyB(this.ptr)]};var b2FrictionJointDef_Create=Module.cwrap("b2FrictionJointDef_Create","number",["number","number","number","number","number","number","number","number","number","number"]);var b2FrictionJointDef_InitializeAndCreate=Module.cwrap("b2FrictionJointDef_InitializeAndCreate","number",["number","number","number","number","number","number","number","number"]);
-function b2FrictionJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.localAnchorA=new b2Vec2;this.localAnchorB=new b2Vec2;this.maxForce=0;this.maxTorque=0;this.userData=null}
-b2FrictionJointDef.prototype.Create=function(world){var frictionJoint=new b2FrictionJoint(this);frictionJoint.ptr=b2FrictionJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.maxForce,this.maxTorque);return frictionJoint};
-b2FrictionJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor){this.bodyA=bodyA;this.bodyB=bodyB;var frictionJoint=new b2FrictionJoint(this);frictionJoint.ptr=b2FrictionJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,this.collideConnected,this.maxForce,this.maxTorque);b2World._Push(frictionJoint,world.joints);return frictionJoint};function b2FrictionJoint(def){this.bodyA=def.bodyA;this.bodyB=def.bodyB;this.ptr=null;this.next=null};var b2RevoluteJoint_EnableLimit=Module.cwrap("b2RevoluteJoint_EnableLimit","number",["number","number"]);var b2RevoluteJoint_EnableMotor=Module.cwrap("b2RevoluteJoint_EnableMotor","number",["number","number"]);var b2RevoluteJoint_GetJointAngle=Module.cwrap("b2RevoluteJoint_GetJointAngle","number",["number"]);var b2RevoluteJoint_IsLimitEnabled=Module.cwrap("b2RevoluteJoint_IsLimitEnabled","number",["number"]);
+function b2FrictionJointDef(){
+	this.bodyA=null;
+	this.bodyB=null;
+	this.collideConnected=false;
+	this.localAnchorA=new b2Vec2;
+	this.localAnchorB=new b2Vec2;
+	this.maxForce=0;
+	this.maxTorque=0;
+	this.userData=null
+}
+
+b2FrictionJointDef.prototype.Create=function(world){
+	var frictionJoint=new b2FrictionJoint(this);
+	frictionJoint.ptr=b2FrictionJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.maxForce,this.maxTorque);
+	return frictionJoint
+};
+b2FrictionJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor){
+	this.bodyA=bodyA;this.bodyB=bodyB;
+	var frictionJoint=new b2FrictionJoint(this);
+	frictionJoint.ptr=b2FrictionJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,this.collideConnected,this.maxForce,this.maxTorque);
+	b2World._Push(frictionJoint,world.joints);
+	return frictionJoint
+};
+function b2FrictionJoint(def){
+	this.bodyA=def.bodyA;
+	this.bodyB=def.bodyB;
+	this.ptr=null;
+	this.next=null
+};
+var b2RevoluteJoint_EnableLimit=Module.cwrap("b2RevoluteJoint_EnableLimit","number",["number","number"]);var b2RevoluteJoint_EnableMotor=Module.cwrap("b2RevoluteJoint_EnableMotor","number",["number","number"]);var b2RevoluteJoint_GetJointAngle=Module.cwrap("b2RevoluteJoint_GetJointAngle","number",["number"]);var b2RevoluteJoint_IsLimitEnabled=Module.cwrap("b2RevoluteJoint_IsLimitEnabled","number",["number"]);
 var b2RevoluteJoint_IsMotorEnabled=Module.cwrap("b2RevoluteJoint_IsMotorEnabled","number",["number"]);var b2RevoluteJoint_SetMotorSpeed=Module.cwrap("b2RevoluteJoint_SetMotorSpeed","number",["number","number"]);
 function b2RevoluteJoint(revoluteJointDef){this.collideConnected=revoluteJointDef.collideConnected;this.enableLimit=revoluteJointDef.enableLimit;this.enableMotor=revoluteJointDef.enableMotor;this.lowerAngle=revoluteJointDef.lowerAngle;this.maxMotorTorque=revoluteJointDef.maxMotorTorque;this.motorSpeed=revoluteJointDef.motorSpeed;this.next=null;this.ptr=null;this.upperAngle=revoluteJointDef.upperAngle;this.userData=revoluteJointDef.userData}b2RevoluteJoint.prototype=new b2Joint;
 b2RevoluteJoint.prototype.EnableLimit=function(flag){b2RevoluteJoint_EnableLimit(this.ptr,flag)};b2RevoluteJoint.prototype.EnableMotor=function(flag){b2RevoluteJoint_EnableMotor(this.ptr,flag)};b2RevoluteJoint.prototype.GetJointAngle=function(flag){return b2RevoluteJoint_GetJointAngle(this.ptr)};b2RevoluteJoint.prototype.IsLimitEnabled=function(){return b2RevoluteJoint_IsLimitEnabled(this.ptr)};b2RevoluteJoint.prototype.IsMotorEnabled=function(){return b2RevoluteJoint_IsMotorEnabled(this.ptr)};
@@ -1481,27 +1955,302 @@ b2PrismaticJoint.prototype=new b2Joint;b2PrismaticJoint.prototype.EnableLimit=fu
 b2PrismaticJoint.prototype.GetMotorForce=function(hz){return b2PrismaticJoint_GetMotorForce(this.ptr,hz)};b2PrismaticJoint.prototype.IsLimitEnabled=function(){return b2PrismaticJoint_IsLimitEnabled(this.ptr)};b2PrismaticJoint.prototype.IsMotorEnabled=function(){return b2PrismaticJoint_IsMotorEnabled(this.ptr)};b2PrismaticJoint.prototype.GetMotorEnabled=function(){return b2PrismaticJoint_IsMotorEnabled(this.ptr)};
 b2PrismaticJoint.prototype.SetMotorSpeed=function(speed){return b2PrismaticJoint_SetMotorSpeed(this.ptr,speed)};var b2PrismaticJointDef_Create=Module.cwrap("b2PrismaticJointDef_Create","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
 var b2PrismaticJointDef_InitializeAndCreate=Module.cwrap("b2PrismaticJointDef_InitializeAndCreate","number",["number","number","number","number","number","number","number","number","number","number","number","number","number","number"]);
-function b2PrismaticJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.enableLimit=false;this.enableMotor=false;this.localAnchorA=new b2Vec2;this.localAnchorB=new b2Vec2;this.localAxisA=new b2Vec2(1,0);this.lowerTranslation=0;this.maxMotorForce=0;this.motorSpeed=0;this.referenceAngle=0;this.upperTranslation=0}
-b2PrismaticJointDef.prototype.Create=function(world){var prismaticJoint=new b2PrismaticJoint(this);prismaticJoint.ptr=b2PrismaticJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.enableLimit,this.enableMotor,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.localAxisA.x,this.localAxisA.y,this.lowerTranslation,this.maxMotorForce,this.motorSpeed,this.referenceAngle,this.upperTranslation);return prismaticJoint};
-b2PrismaticJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor,axis){this.bodyA=bodyA;this.bodyB=bodyB;var prismaticJoint=new b2PrismaticJoint(this);prismaticJoint.ptr=b2PrismaticJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,axis.x,axis.y,this.collideConnected,this.enableLimit,this.enableMotor,this.lowerTranslation,this.maxMotorForce,this.motorSpeed,this.upperTranslation);b2World._Push(prismaticJoint,world.joints);return prismaticJoint};function b2RopeJoint(def){this.next=null;this.ptr=null}var b2RopeJointDef_Create=Module.cwrap("b2RopeJointDef_Create","number",["number","number","number","number","number","number","number","number","number"]);function b2RopeJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.localAnchorA=new b2Vec2;this.localAnchorB=new b2Vec2;this.maxLength=0}
-b2RopeJointDef.prototype.Create=function(world){var ropeJoint=new b2RopeJoint(this);ropeJoint.ptr=b2RopeJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.maxLength);return ropeJoint};var b2MouseJoint_SetTarget=Module.cwrap("b2MouseJoint_SetTarget","null",["number","number","number"]);function b2MouseJoint(def){this.ptr=null;this.next=null}b2MouseJoint.prototype.SetTarget=function(p){b2MouseJoint_SetTarget(this.ptr,p.x,p.y)};var b2MouseJointDef_Create=Module.cwrap("b2MouseJointDef_Create","number",["number","number","number","number","number","number","number","number","number"]);
-function b2MouseJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.dampingRatio=.7;this.frequencyHz=5;this.maxForce=0;this.target=new b2Vec2}b2MouseJointDef.prototype.Create=function(world){var mouseJoint=new b2MouseJoint(this);mouseJoint.ptr=b2MouseJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.dampingRatio,this.frequencyHz,this.maxForce,this.target.x,this.target.y);return mouseJoint};var b2Contact_fixtureA_offset=Offsets.b2Contact.fixtureA;var b2Contact_fixtureB_offset=Offsets.b2Contact.fixtureB;var b2Contact_tangentSpeed_offset=Offsets.b2Contact.tangentSpeed;var b2Contact_GetManifold=Module.cwrap("b2Contact_GetManifold","number",["number"]);var b2Contact_GetWorldManifold=Module.cwrap("b2Contact_GetWorldManifold","number",["number"]);function b2Contact(ptr){this.buffer=new DataView(Module.HEAPU8.buffer,ptr);this.ptr=ptr}
-b2Contact.prototype.GetFixtureA=function(){var fixAPtr=this.buffer.getUint32(b2Contact_fixtureA_offset,true);return world.fixturesLookup[fixAPtr]};b2Contact.prototype.GetFixtureB=function(){var fixBPtr=this.buffer.getUint32(b2Contact_fixtureB_offset,true);return world.fixturesLookup[fixBPtr]};b2Contact.prototype.GetManifold=function(){return new b2Manifold(b2Contact_GetManifold(this.ptr))};b2Contact.prototype.GetWorldManifold=function(){return new b2WorldManifold(b2Contact_GetWorldManifold(this.ptr))};
-b2Contact.prototype.SetTangentSpeed=function(speed){this.buffer.setFloat32(b2Contact_tangentSpeed_offset,speed,true)};function b2Filter(){this.categoryBits=1;this.groupIndex=0;this.maskBits=65535}var b2Fixture_isSensor_offset=Offsets.b2Fixture.isSensor;var b2Fixture_userData_offset=Offsets.b2Fixture.userData;function b2Fixture(){this.body=null;this.buffer=null;this.ptr=null;this.shape=null}var b2Fixture_TestPoint=Module.cwrap("b2Fixture_TestPoint","number",["number","number","number"]);b2Fixture.prototype._SetPtr=function(ptr){this.ptr=ptr;this.buffer=new DataView(Module.HEAPU8.buffer,ptr)};
-b2Fixture.prototype.FromFixtureDef=function(fixtureDef){this.density=fixtureDef.density;this.friction=fixtureDef.friction;this.isSensor=fixtureDef.isSensor;this.restitution=fixtureDef.restitution;this.shape=fixtureDef.shape;this.userData=fixtureDef.userData;this.vertices=[]};b2Fixture.prototype.GetUserData=function(){return this.buffer.getUint32(b2Fixture_userData_offset,true)};b2Fixture.prototype.SetSensor=function(flag){this.buffer.setUint32(b2Fixture_isSensor_offset,flag,true)};
-b2Fixture.prototype.TestPoint=function(p){return b2Fixture_TestPoint(this.ptr,p.x,p.y)};function b2FixtureDef(){this.density=0;this.friction=.2;this.isSensor=false;this.restitution=0;this.shape=null;this.userData=null;this.filter=new b2Filter};function b2ContactImpulse(ptr){this.ptr=ptr;this.buffer=new DataView(Module.HEAPU8.buffer,ptr)}b2ContactImpulse.prototype.GetNormalImpulse=function(i){return this.buffer.getFloat32(i*4,true)};b2ContactImpulse.prototype.GetTangentImpulse=function(i){return this.buffer.getFloat32(i*4+8,true)};b2ContactImpulse.prototype.GetCount=function(i){console.log(this.buffer.getInt32(16,true))};function b2ParticleSystemDef(){this.colorMixingStrength=.5;this.dampingStrength=1;this.destroyByAge=true;this.ejectionStrength=.5;this.elasticStrength=.25;this.lifetimeGranularity=1/60;this.powderStrength=.5;this.pressureStrength=.05;this.radius=1;this.repulsiveStrength=1;this.springStrength=.25;this.staticPressureIterations=8;this.staticPressureRelaxation=.2;this.staticPressureStrength=.2;this.surfaceTensionNormalStrength=.2;this.surfaceTensionPressureStrength=.2;this.viscousStrength=.25}
-var b2ParticleSystem_CreateParticle=Module.cwrap("b2ParticleSystem_CreateParticle","number",["number","number","number","number","number","number","number","number","number","number","number","number","number"]);var b2ParticleSystem_GetColorBuffer=Module.cwrap("b2ParticleSystem_GetColorBuffer","number",["number"]);var b2ParticleSystem_GetParticleCount=Module.cwrap("b2ParticleSystem_GetParticleCount","number",["number"]);
-var b2ParticleSystem_GetPositionBuffer=Module.cwrap("b2ParticleSystem_GetPositionBuffer","number",["number"]);var b2ParticleSystem_GetVelocityBuffer=Module.cwrap("b2ParticleSystem_GetVelocityBuffer","number",["number"]);var b2ParticleSystem_SetDamping=Module.cwrap("b2ParticleSystem_SetDamping","null",["number","number"]);var b2ParticleSystem_SetDensity=Module.cwrap("b2ParticleSystem_SetDensity","null",["number","number"]);
-var b2ParticleSystem_SetRadius=Module.cwrap("b2ParticleSystem_SetRadius","null",["number","number"]);function b2ParticleSystem(ptr){this.dampingStrength=1;this.density=1;this.ptr=ptr;this.particleGroups=[];this.radius=1}b2ParticleSystem.prototype.CreateParticle=function(pd){return b2ParticleSystem_CreateParticle(this.ptr,pd.color.r,pd.color.g,pd.color.b,pd.color.a,pd.flags,pd.group,pd.lifetime,pd.position.x,pd.position.y,pd.userData,pd.velocity.x,pd.velocity.y)};
-b2ParticleSystem.prototype.CreateParticleGroup=function(pgd){var particleGroup=new b2ParticleGroup(pgd.shape._CreateParticleGroup(this,pgd));this.particleGroups.push(particleGroup);return particleGroup};b2ParticleSystem.prototype.DestroyParticlesInShape=function(shape,xf){return shape._DestroyParticlesInShape(this,xf)};
-b2ParticleSystem.prototype.GetColorBuffer=function(){var count=b2ParticleSystem_GetParticleCount(this.ptr)*4;var offset=b2ParticleSystem_GetColorBuffer(this.ptr);return new Uint8Array(Module.HEAPU8.buffer,offset,count)};b2ParticleSystem.prototype.GetParticleCount=function(){return b2ParticleSystem_GetParticleCount(this.ptr)*2};
-b2ParticleSystem.prototype.GetPositionBuffer=function(){var count=b2ParticleSystem_GetParticleCount(this.ptr)*2;var offset=b2ParticleSystem_GetPositionBuffer(this.ptr);return new Float32Array(Module.HEAPU8.buffer,offset,count)};b2ParticleSystem.prototype.GetVelocityBuffer=function(){var count=b2ParticleSystem_GetParticleCount(this.ptr)*2;var offset=b2ParticleSystem_GetVelocityBuffer(this.ptr);return new Float32Array(Module.HEAPU8.buffer,offset,count)};
-b2ParticleSystem.prototype.SetDamping=function(damping){this.dampingStrength=damping;b2ParticleSystem_SetDamping(this.ptr,damping)};b2ParticleSystem.prototype.SetDensity=function(density){this.density=density;b2ParticleSystem_SetDensity(this.ptr,density)};b2ParticleSystem.prototype.SetRadius=function(radius){this.radius=radius;b2ParticleSystem_SetRadius(this.ptr,radius)};var b2_solidParticleGroup=1<<0;var b2_rigidParticleGroup=1<<1;var b2_particleGroupCanBeEmpty=1<<2;var b2_particleGroupWillBeDestroyed=1<<3;var b2_particleGroupNeedsUpdateDepth=1<<4;var b2_particleGroupInternalMask=b2_particleGroupWillBeDestroyed|b2_particleGroupNeedsUpdateDepth;var b2ParticleGroup_ApplyForce=Module.cwrap("b2ParticleGroup_ApplyForce","null",["number","number","number"]);
-var b2ParticleGroup_ApplyLinearImpulse=Module.cwrap("b2ParticleGroup_ApplyLinearImpulse","null",["number","number","number"]);var b2ParticleGroup_DestroyParticles=Module.cwrap("b2ParticleGroup_DestroyParticles","null",["number","number"]);var b2ParticleGroup_GetBufferIndex=Module.cwrap("b2ParticleGroup_GetBufferIndex","number",["number"]);var b2ParticleGroup_GetParticleCount=Module.cwrap("b2ParticleGroup_GetParticleCount","number",["number"]);var b2ParticleGroup_groupFlags_offset=Offsets.b2ParticleGroup.groupFlags;
-function b2ParticleGroup(ptr){this.buffer=new DataView(Module.HEAPU8.buffer,ptr);this.ptr=ptr}b2ParticleGroup.prototype.ApplyForce=function(force){b2ParticleGroup_ApplyForce(this.ptr,force.x,force.y)};b2ParticleGroup.prototype.ApplyLinearImpulse=function(impulse){b2ParticleGroup_ApplyLinearImpulse(this.ptr,impulse.x,impulse.y)};b2ParticleGroup.prototype.DestroyParticles=function(flag){b2ParticleGroup_DestroyParticles(this.ptr,flag)};b2ParticleGroup.prototype.GetBufferIndex=function(){return b2ParticleGroup_GetBufferIndex(this.ptr)};
-b2ParticleGroup.prototype.GetGroupFlags=function(){return this.buffer.getUint32(b2ParticleGroup_groupFlags_offset,true)};b2ParticleGroup.prototype.GetParticleCount=function(){return b2ParticleGroup_GetParticleCount(this.ptr)};b2ParticleGroup.prototype.SetGroupFlags=function(flags){this.buffer.setUint32(b2ParticleGroup_groupFlags_offset,flags,true)};
-function b2ParticleGroupDef(){this.angle=0;this.angularVelocity=0;this.color=new b2ParticleColor(0,0,0,0);this.flags=0;this.group=new b2ParticleGroup(null);this.groupFlags=0;this.lifetime=0;this.linearVelocity=new b2Vec2;this.position=new b2Vec2;this.positionData=null;this.particleCount=0;this.shape=null;this.strength=1;this.stride=0;this.userData=null};var b2_waterParticle=0;var b2_zombieParticle=1<<1;var b2_wallParticle=1<<2;var b2_springParticle=1<<3;var b2_elasticParticle=1<<4;var b2_viscousParticle=1<<5;var b2_powderParticle=1<<6;var b2_tensileParticle=1<<7;var b2_colorMixingParticle=1<<8;var b2_destructionListenerParticle=1<<9;var b2_barrierParticle=1<<10;var b2_staticPressureParticle=1<<11;var b2_reactiveParticle=1<<12;var b2_repulsiveParticle=1<<13;var b2_fixtureContactListenerParticle=1<<14;var b2_particleContactListenerParticle=1<<15;
-var b2_fixtureContactFilterParticle=1<<16;var b2_particleContactFilterParticle=1<<17;function b2ParticleColor(r,g,b,a){if(r===undefined)r=0;if(g===undefined)g=0;if(b===undefined)b=0;if(a===undefined)a=0;this.r=r;this.g=g;this.b=b;this.a=a}b2ParticleColor.prototype.Set=function(r,g,b,a){this.r=r;this.g=g;this.b=b;this.a=a};function b2ParticleDef(){this.color=new b2Vec2;this.flags=0;this.group=0;this.lifetime=0;this.position=new b2Vec2;this.userData=0;this.velocity=new b2Vec2};
+function b2PrismaticJointDef(){
+	this.bodyA=null;
+	this.bodyB=null;
+	this.collideConnected=false;
+	this.enableLimit=false;
+	this.enableMotor=false;
+	this.localAnchorA=new b2Vec2;
+	this.localAnchorB=new b2Vec2;
+	this.localAxisA=new b2Vec2(1,0);
+	this.lowerTranslation=0;
+	this.maxMotorForce=0;
+	this.motorSpeed=0;
+	this.referenceAngle=0;
+	this.upperTranslation=0
+}
+b2PrismaticJointDef.prototype.Create=function(world){
+	var prismaticJoint=new b2PrismaticJoint(this);
+	prismaticJoint.ptr=b2PrismaticJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.enableLimit,this.enableMotor,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.localAxisA.x,this.localAxisA.y,this.lowerTranslation,this.maxMotorForce,this.motorSpeed,this.referenceAngle,this.upperTranslation);
+	return prismaticJoint
+};
+b2PrismaticJointDef.prototype.InitializeAndCreate=function(bodyA,bodyB,anchor,axis){
+	this.bodyA=bodyA;
+	this.bodyB=bodyB;
+	var prismaticJoint=new b2PrismaticJoint(this);
+	prismaticJoint.ptr=b2PrismaticJointDef_InitializeAndCreate(world.ptr,this.bodyA.ptr,this.bodyB.ptr,anchor.x,anchor.y,axis.x,axis.y,this.collideConnected,this.enableLimit,this.enableMotor,this.lowerTranslation,this.maxMotorForce,this.motorSpeed,this.upperTranslation);
+	b2World._Push(prismaticJoint,world.joints);
+	return prismaticJoint
+};
+function b2RopeJoint(def){this.next=null;this.ptr=null}var b2RopeJointDef_Create=Module.cwrap("b2RopeJointDef_Create","number",["number","number","number","number","number","number","number","number","number"]);function b2RopeJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.localAnchorA=new b2Vec2;this.localAnchorB=new b2Vec2;this.maxLength=0}
+b2RopeJointDef.prototype.Create=function(world){var ropeJoint=new b2RopeJoint(this);ropeJoint.ptr=b2RopeJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.localAnchorA.x,this.localAnchorA.y,this.localAnchorB.x,this.localAnchorB.y,this.maxLength);return ropeJoint};
+
+var b2MouseJoint_SetTarget=Module.cwrap("b2MouseJoint_SetTarget","null",["number","number","number"]);
+
+function b2MouseJoint(def){
+	this.ptr=null;
+	this.next=null
+}
+b2MouseJoint.prototype.SetTarget=function(p){
+	b2MouseJoint_SetTarget(this.ptr,p.x,p.y)
+};
+
+var b2MouseJointDef_Create=Module.cwrap("b2MouseJointDef_Create","number",["number","number","number","number","number","number","number","number","number"]);
+
+function b2MouseJointDef(){this.bodyA=null;this.bodyB=null;this.collideConnected=false;this.dampingRatio=.7;this.frequencyHz=5;this.maxForce=0;this.target=new b2Vec2}
+
+b2MouseJointDef.prototype.Create=function(world){var mouseJoint=new b2MouseJoint(this);mouseJoint.ptr=b2MouseJointDef_Create(world.ptr,this.bodyA.ptr,this.bodyB.ptr,this.collideConnected,this.dampingRatio,this.frequencyHz,this.maxForce,this.target.x,this.target.y);return mouseJoint};
+
+var b2Contact_fixtureA_offset=Offsets.b2Contact.fixtureA;
+var b2Contact_fixtureB_offset=Offsets.b2Contact.fixtureB;
+var b2Contact_tangentSpeed_offset=Offsets.b2Contact.tangentSpeed;
+var b2Contact_GetManifold=Module.cwrap("b2Contact_GetManifold","number",["number"]);
+var b2Contact_GetWorldManifold=Module.cwrap("b2Contact_GetWorldManifold","number",["number"]);
+function b2Contact(ptr){
+	this.buffer=new DataView(Module.HEAPU8.buffer,ptr);
+	this.ptr=ptr
+}
+b2Contact.prototype.GetFixtureA=function(){
+	var fixAPtr=this.buffer.getUint32(b2Contact_fixtureA_offset,true);
+	return world.fixturesLookup[fixAPtr]
+};
+b2Contact.prototype.GetFixtureB=function(){
+	var fixBPtr=this.buffer.getUint32(b2Contact_fixtureB_offset,true);
+	return world.fixturesLookup[fixBPtr]
+};
+b2Contact.prototype.GetManifold=function(){
+	return new b2Manifold(b2Contact_GetManifold(this.ptr))
+};
+b2Contact.prototype.GetWorldManifold=function(){
+	return new b2WorldManifold(b2Contact_GetWorldManifold(this.ptr))
+};
+b2Contact.prototype.SetTangentSpeed=function(speed){
+	this.buffer.setFloat32(b2Contact_tangentSpeed_offset,speed,true)
+};
+function b2Filter(){
+	this.categoryBits=1;
+	this.groupIndex=0;
+	this.maskBits=65535
+}
+var b2Fixture_isSensor_offset=Offsets.b2Fixture.isSensor;
+var b2Fixture_userData_offset=Offsets.b2Fixture.userData;
+function b2Fixture(){
+	this.body=null;
+	this.buffer=null;
+	this.ptr=null;
+	this.shape=null
+}
+var b2Fixture_TestPoint=Module.cwrap("b2Fixture_TestPoint","number",["number","number","number"]);
+b2Fixture.prototype._SetPtr=function(ptr){this.ptr=ptr;this.buffer=new DataView(Module.HEAPU8.buffer,ptr)};
+b2Fixture.prototype.FromFixtureDef=function(fixtureDef){
+	this.density=fixtureDef.density;
+	this.friction=fixtureDef.friction;
+	this.isSensor=fixtureDef.isSensor;
+	this.restitution=fixtureDef.restitution;
+	this.shape=fixtureDef.shape;
+	this.userData=fixtureDef.userData;
+	this.vertices=[]
+};
+b2Fixture.prototype.GetUserData=function(){return this.buffer.getUint32(b2Fixture_userData_offset,true)};b2Fixture.prototype.SetSensor=function(flag){this.buffer.setUint32(b2Fixture_isSensor_offset,flag,true)};
+b2Fixture.prototype.TestPoint=function(p){return b2Fixture_TestPoint(this.ptr,p.x,p.y)};
+function b2FixtureDef(){
+	this.density=0;
+	this.friction=0;
+	this.isSensor=false;
+	this.restitution=1;
+	this.shape=null;
+	this.userData=null;
+	this.filter=new b2Filter
+};
+function b2ContactImpulse(ptr){
+	this.ptr=ptr;
+	this.buffer=new DataView(Module.HEAPU8.buffer,ptr)
+}
+b2ContactImpulse.prototype.GetNormalImpulse=function(i){
+	return this.buffer.getFloat32(i*4,true)
+};
+b2ContactImpulse.prototype.GetTangentImpulse=function(i){
+	return this.buffer.getFloat32(i*4+8,true)
+};
+b2ContactImpulse.prototype.GetCount=function(i){
+	console.log(this.buffer.getInt32(16,true))
+};
+function b2ParticleSystemDef(){
+	this.colorMixingStrength=.5;
+	this.dampingStrength=0.1;
+	this.destroyByAge=true;
+	this.ejectionStrength=.5;
+	this.elasticStrength=.25;
+	this.lifetimeGranularity=1/60;
+	this.powderStrength=.5;
+	// this.pressureStrength=.05;
+	this.pressureStrength=.01;
+	this.radius=1;
+	this.repulsiveStrength=1;
+	this.springStrength=.25;
+	this.staticPressureIterations=8;
+	this.staticPressureRelaxation=.2;
+	this.staticPressureStrength=.2;
+	// this.surfaceTensionNormalStrength=.2;
+	this.surfaceTensionNormalStrength=.02;
+	// this.surfaceTensionPressureStrength=.2;
+	this.surfaceTensionPressureStrength=0.5;
+	this.viscousStrength=.25
+}
+var b2ParticleSystem_CreateParticle=Module.cwrap("b2ParticleSystem_CreateParticle","number",["number","number","number","number","number","number","number","number","number","number","number","number","number"]);
+var b2ParticleSystem_GetColorBuffer=Module.cwrap("b2ParticleSystem_GetColorBuffer","number",["number"]);
+var b2ParticleSystem_GetParticleCount=Module.cwrap("b2ParticleSystem_GetParticleCount","number",["number"]);
+var b2ParticleSystem_GetPositionBuffer=Module.cwrap("b2ParticleSystem_GetPositionBuffer","number",["number"]);
+var b2ParticleSystem_GetVelocityBuffer=Module.cwrap("b2ParticleSystem_GetVelocityBuffer","number",["number"]);
+var b2ParticleSystem_SetDamping=Module.cwrap("b2ParticleSystem_SetDamping","null",["number","number"]);
+var b2ParticleSystem_SetDensity=Module.cwrap("b2ParticleSystem_SetDensity","null",["number","number"]);
+var b2ParticleSystem_SetRadius=Module.cwrap("b2ParticleSystem_SetRadius","null",["number","number"]);
+function b2ParticleSystem(ptr){
+	this.dampingStrength=1;
+	this.density=.1;
+	this.ptr=ptr;
+	this.particleGroups=[];
+	this.radius=1;
+}
+b2ParticleSystem.prototype.CreateParticle=function(pd){
+	return b2ParticleSystem_CreateParticle(this.ptr,pd.color.r,pd.color.g,pd.color.b,pd.color.a,pd.flags,pd.group,pd.lifetime,pd.position.x,pd.position.y,pd.userData,pd.velocity.x,pd.velocity.y)
+};
+b2ParticleSystem.prototype.CreateParticleGroup=function(pgd){
+	var particleGroup=new b2ParticleGroup(pgd.shape._CreateParticleGroup(this,pgd));
+	this.particleGroups.push(particleGroup);
+	return particleGroup
+};
+b2ParticleSystem.prototype.DestroyParticlesInShape=function(shape,xf){
+	return shape._DestroyParticlesInShape(this,xf)
+};
+
+b2ParticleSystem.prototype.GetColorBuffer=function(){
+	var count=b2ParticleSystem_GetParticleCount(this.ptr)*4;
+	var offset=b2ParticleSystem_GetColorBuffer(this.ptr);
+	return new Uint8Array(Module.HEAPU8.buffer,offset,count)
+};
+b2ParticleSystem.prototype.GetParticleCount=function(){
+	return b2ParticleSystem_GetParticleCount(this.ptr)*2;
+};
+
+b2ParticleSystem.prototype.GetPositionBuffer=function(){
+	var count=b2ParticleSystem_GetParticleCount(this.ptr)*2;
+	var offset=b2ParticleSystem_GetPositionBuffer(this.ptr);
+	return new Float32Array(Module.HEAPU8.buffer,offset,count)
+};
+b2ParticleSystem.prototype.GetVelocityBuffer=function(){
+	var count=b2ParticleSystem_GetParticleCount(this.ptr)*2;
+	var offset=b2ParticleSystem_GetVelocityBuffer(this.ptr);
+	return new Float32Array(Module.HEAPU8.buffer,offset,count)
+};
+b2ParticleSystem.prototype.SetDamping=function(damping){
+	this.dampingStrength=damping;
+	b2ParticleSystem_SetDamping(this.ptr,damping)
+};
+b2ParticleSystem.prototype.SetDensity=function(density){
+	this.density=density;
+	b2ParticleSystem_SetDensity(this.ptr,density)
+};
+b2ParticleSystem.prototype.SetRadius=function(radius){
+	this.radius=radius;
+	b2ParticleSystem_SetRadius(this.ptr,radius)
+};
+var b2_solidParticleGroup=1<<0;
+var b2_rigidParticleGroup=1<<1;
+var b2_particleGroupCanBeEmpty=1<<2;
+var b2_particleGroupWillBeDestroyed=1<<3;
+var b2_particleGroupNeedsUpdateDepth=1<<4;
+var b2_particleGroupInternalMask=b2_particleGroupWillBeDestroyed|b2_particleGroupNeedsUpdateDepth;
+var b2ParticleGroup_ApplyForce=Module.cwrap("b2ParticleGroup_ApplyForce","null",["number","number","number"]);
+var b2ParticleGroup_ApplyLinearImpulse=Module.cwrap("b2ParticleGroup_ApplyLinearImpulse","null",["number","number","number"]);
+var b2ParticleGroup_DestroyParticles=Module.cwrap("b2ParticleGroup_DestroyParticles","null",["number","number"]);var b2ParticleGroup_GetBufferIndex=Module.cwrap("b2ParticleGroup_GetBufferIndex","number",["number"]);var b2ParticleGroup_GetParticleCount=Module.cwrap("b2ParticleGroup_GetParticleCount","number",["number"]);var b2ParticleGroup_groupFlags_offset=Offsets.b2ParticleGroup.groupFlags;
+function b2ParticleGroup(ptr){
+	this.buffer=new DataView(Module.HEAPU8.buffer,ptr);
+	this.ptr=ptr;
+}
+b2ParticleGroup.prototype.ApplyForce=function(force){
+	b2ParticleGroup_ApplyForce(this.ptr,force.x,force.y)
+};
+b2ParticleGroup.prototype.ApplyLinearImpulse=function(impulse){
+	b2ParticleGroup_ApplyLinearImpulse(this.ptr,impulse.x,impulse.y)
+};
+b2ParticleGroup.prototype.DestroyParticles=function(flag){
+	b2ParticleGroup_DestroyParticles(this.ptr,flag)
+};
+b2ParticleGroup.prototype.GetBufferIndex=function(){
+	return b2ParticleGroup_GetBufferIndex(this.ptr)
+};
+b2ParticleGroup.prototype.GetGroupFlags=function(){
+	return this.buffer.getUint32(b2ParticleGroup_groupFlags_offset,true)
+};
+b2ParticleGroup.prototype.GetParticleCount=function(){
+	return b2ParticleGroup_GetParticleCount(this.ptr)
+};
+b2ParticleGroup.prototype.SetGroupFlags=function(flags){
+	this.buffer.setUint32(b2ParticleGroup_groupFlags_offset,flags,true)
+};
+function b2ParticleGroupDef(){
+	this.angle=0;
+	this.angularVelocity=0;
+	this.color=new b2ParticleColor(0,0,0,0);
+	this.flags=0;
+	this.group=new b2ParticleGroup(null);
+	this.groupFlags=0;
+	this.lifetime=0;
+	this.linearVelocity=new b2Vec2;
+	this.position=new b2Vec2;
+	this.positionData=null;
+	this.particleCount=0;
+	this.shape=null;
+	this.strength=1;
+	this.stride=0;
+	this.userData=null
+};
+var b2_waterParticle=0;
+var b2_zombieParticle=1<<1;
+var b2_wallParticle=1<<2;
+var b2_springParticle=1<<3;
+var b2_elasticParticle=1<<4;
+var b2_viscousParticle=1<<5;
+var b2_powderParticle=1<<6;
+var b2_tensileParticle=1<<7;
+var b2_colorMixingParticle=1<<8;
+var b2_destructionListenerParticle=1<<9;
+var b2_barrierParticle=1<<10;
+var b2_staticPressureParticle=1<<11;
+var b2_reactiveParticle=1<<12;
+var b2_repulsiveParticle=1<<13;
+var b2_fixtureContactListenerParticle=1<<14;
+var b2_particleContactListenerParticle=1<<15;
+var b2_fixtureContactFilterParticle=1<<16;
+var b2_particleContactFilterParticle=1<<17;
+function b2ParticleColor(r,g,b,a){
+	if(r===undefined)r=0;
+	if(g===undefined)g=0;
+	if(b===undefined)b=0;
+	if(a===undefined)a=0;
+	this.r=r;
+	this.g=g;
+	this.b=b;
+	this.a=a
+}
+b2ParticleColor.prototype.Set=function(r,g,b,a){
+	this.r=r;
+	this.g=g;
+	this.b=b;
+	this.a=a;
+};
+function b2ParticleDef(){
+	this.color=new b2Vec2;
+	this.flags=0;
+	this.group=0;
+	this.lifetime=0;
+	this.position=new b2Vec2;
+	this.userData=0;
+	this.velocity=new b2Vec2;
+	this.radius=1;
+};
 b2World.prototype.DrawJoint = function (joint) {
       var b1 = joint.GetBodyA();
       var b2 = joint.GetBodyB();
